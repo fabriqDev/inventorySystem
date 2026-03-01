@@ -1,50 +1,103 @@
-# Welcome to your Expo app 👋
+# FabriqWorld
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Inventory management and POS application built with Expo (React Native). Supports iOS, Android, and Web.
 
-## Get started
+## Tech Stack
 
-1. Install dependencies
+- **Frontend:** Expo SDK 54, React Native, Expo Router (file-based routing)
+- **Backend:** [NHost](https://nhost.io) (Hasura GraphQL + Auth)
+- **State:** React Context (Auth, Cart, Company, DataSource, Theme)
+- **Payments:** Razorpay (planned)
+
+## Architecture
+
+The app uses a **backend abstraction layer** (`lib/backend/`) so the backend provider can be swapped without changing application code:
+
+```
+lib/backend/
+  types.ts    - AuthProvider, DataProvider, BackendProvider interfaces
+  nhost.ts    - NHost implementation
+  index.ts    - Single export point (swap provider here)
+```
+
+A **mock data toggle** in the hamburger menu lets you switch between live NHost data and local mock data at runtime.
+
+## Project Structure
+
+```
+app/
+  (auth)/           - Login screens
+  (tabs)/           - Main tab navigation (Home, Explore)
+  company/[id]/     - Company screens (Tiles, Inventory, Orders, Create Order, Checkout)
+components/         - Reusable UI components
+contexts/           - React contexts (Auth, Cart, Company, DataSource, Theme)
+hooks/              - Custom hooks (color scheme, debounce)
+lib/
+  api/              - API layer (companies, products, orders) with mock/live toggle
+  backend/          - Backend abstraction (NHost adapter)
+  mock-data.ts      - Mock data for development
+  format.ts         - Price, date, ID formatting utilities
+types/              - TypeScript interfaces (Company, Product, Order, Cart, Tiles)
+constants/          - Theme and currency constants
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- An [NHost](https://nhost.io) project with Hasura configured
+
+### Setup
+
+1. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Start the app
+2. Create a `.env` file in the project root:
+
+   ```
+   EXPO_PUBLIC_NHOST_SUBDOMAIN=your-nhost-subdomain
+   EXPO_PUBLIC_NHOST_REGION=your-nhost-region
+   ```
+
+3. Start the development server:
 
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+4. Open on your device (Expo Go), simulator, or press `w` for web.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## Database Schema (Hasura)
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+The app expects these tables:
 
-## Get a fresh project
+| Table | Key Columns |
+|-------|-------------|
+| `companies` | id, name, slug, rzpay_key_id, meta, created_at, updated_at |
+| `user_companies` | user_id, company_id, role, meta |
+| `products` | id, company_id, name, sku, barcode, price, currency, quantity, image_url |
+| `orders` | id, company_id, total_amount, currency, status, payment_method, razorpay_order_id, razorpay_payment_id |
+| `order_items` | id, order_id, product_id, quantity, unit_price, currency |
 
-When you're ready, run:
+All IDs are UUIDs. Prices are stored in paise (smallest currency unit).
 
-```bash
-npm run reset-project
-```
+## Deployment
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory with the basics you'll need to start developing.
+Deployed on [Vercel](https://vercel.com). On push to `main`, Vercel auto-builds and deploys.
 
-## Learn more
+- **Build command:** `npx expo export -p web`
+- **Output directory:** `dist`
 
-To learn more about developing your project with Expo, look at the following resources:
+Set `EXPO_PUBLIC_NHOST_SUBDOMAIN` and `EXPO_PUBLIC_NHOST_REGION` as environment variables in Vercel.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll build an app that runs on Android, iOS, and the web.
+## Swapping the Backend
 
-## Join the community
+To replace NHost with another provider:
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. Create a new file in `lib/backend/` implementing `BackendProvider` from `types.ts`
+2. Update `lib/backend/index.ts` to export the new provider
+3. No other code changes needed
