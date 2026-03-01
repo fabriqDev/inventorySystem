@@ -1,0 +1,26 @@
+{"location":"app/_layout.tsx:TOP","message":"RootLayout module loaded","data":{},"timestamp":1772353163374}
+{"location":"app/_layout.tsx:TOP","message":"RootLayout module loaded","data":{},"timestamp":1772353167168}
+{"location":"app/_layout.tsx:TOP","message":"RootLayout module loaded","data":{},"timestamp":1772353167368}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":true},"timestamp":1772353167376}
+{"location":"app/_layout.tsx:TOP","message":"RootLayout module loaded","data":{},"timestamp":1772353185363}
+{"location":"app/_layout.tsx:TOP","message":"RootLayout module loaded","data":{},"timestamp":1772353185639}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":true},"timestamp":1772353185681}
+{"location":"auth-context.tsx:SessionProvider","message":"SessionProvider init - calling getSession","data":{},"timestamp":1772353185682}
+{"location":"auth-context.tsx:getSession.then","message":"getSession resolved","data":{"hasSession":false,"userId":null},"timestamp":1772353185794}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353185797}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353233866}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":true},"timestamp":1772353393520}
+{"location":"auth-context.tsx:SessionProvider","message":"SessionProvider init - calling getSession","data":{},"timestamp":1772353393520}
+{"location":"auth-context.tsx:getSession.then","message":"getSession resolved","data":{"hasSession":false,"userId":null},"timestamp":1772353393768}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353393770}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":true},"timestamp":1772353427955}
+{"location":"auth-context.tsx:SessionProvider","message":"SessionProvider init - calling getSession","data":{},"timestamp":1772353427955}
+{"location":"auth-context.tsx:getSession.then","message":"getSession resolved","data":{"hasSession":false,"userId":null},"timestamp":1772353428062}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353428065}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":true},"timestamp":1772353435338}
+{"location":"auth-context.tsx:SessionProvider","message":"SessionProvider init - calling getSession","data":{},"timestamp":1772353435338}
+{"location":"auth-context.tsx:getSession.then","message":"getSession resolved","data":{"hasSession":false,"userId":null},"timestamp":1772353435440}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353435442}
+{"location":"app/_layout.tsx:RootLayoutNav","message":"RootLayoutNav rendered","data":{"hasSession":false,"loading":false},"timestamp":1772353523514}
+{"location":"auth-context.tsx:SessionProvider","message":"SessionProvider init - calling getSession","data":{},"timestamp":1772353523514}
+{"location":"auth-context.tsx:getSession.then","message":"getSession resolved","data":{"hasSession":false,"userId":null},"timestamp":1772353523615}
