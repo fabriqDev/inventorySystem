@@ -5,30 +5,39 @@ import {
   type SessionStorageBackend,
 } from '@nhost/nhost-js/session';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 
+import type { Product } from '@/types/product';
 import type {
   AppSession,
   AuthProvider,
   BackendProvider,
-  DataProvider
+  CreateSaleInput,
+  CreateSaleResult,
+  DataProvider,
 } from './types';
 
+const SESSION_KEY = DEFAULT_SESSION_KEY;
+const SECURE_STORE_MAX_BYTES = 2048;
+
 // ---------------------------------------------------------------------------
-// AsyncStorage adapter -- lets NHost persist sessions across app restarts
+// Secure session storage: SecureStore on native (when payload fits), else AsyncStorage.
+// Exposes hydrationPromise so the app can wait for restore before reading session.
 // ---------------------------------------------------------------------------
 
-class NhostAsyncStorage implements SessionStorageBackend {
-  private key: string;
+class SecureSessionStorage implements SessionStorageBackend {
   private cache: Session | null = null;
+  readonly hydrationPromise: Promise<void>;
 
-  constructor(key: string = DEFAULT_SESSION_KEY) {
-    this.key = key;
-    this.hydrate();
+  constructor() {
+    this.hydrationPromise = this.hydrate();
   }
 
-  private hydrate(): void {
-    AsyncStorage.getItem(this.key)
-      .then((raw) => {
+  private async hydrate(): Promise<void> {
+    try {
+      if (Platform.OS === 'web') {
+        const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (raw) {
           try {
             this.cache = JSON.parse(raw) as Session;
@@ -36,8 +45,29 @@ class NhostAsyncStorage implements SessionStorageBackend {
             this.cache = null;
           }
         }
-      })
-      .catch(() => {});
+        return;
+      }
+      const fromSecure = await SecureStore.getItemAsync(SESSION_KEY);
+      if (fromSecure) {
+        try {
+          this.cache = JSON.parse(fromSecure) as Session;
+        } catch {
+          this.cache = null;
+        }
+      }
+      if (this.cache === null) {
+        const fromAsync = await AsyncStorage.getItem(SESSION_KEY);
+        if (fromAsync) {
+          try {
+            this.cache = JSON.parse(fromAsync) as Session;
+          } catch {
+            this.cache = null;
+          }
+        }
+      }
+    } catch {
+      this.cache = null;
+    }
   }
 
   get(): Session | null {
@@ -46,23 +76,35 @@ class NhostAsyncStorage implements SessionStorageBackend {
 
   set(value: Session): void {
     this.cache = value;
-    void AsyncStorage.setItem(this.key, JSON.stringify(value)).catch(() => {});
+    const raw = JSON.stringify(value);
+    if (Platform.OS === 'web') {
+      void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
+      return;
+    }
+    if (raw.length <= SECURE_STORE_MAX_BYTES) {
+      void SecureStore.setItemAsync(SESSION_KEY, raw).catch(() => {
+        void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
+      });
+    } else {
+      void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
+    }
   }
 
   remove(): void {
     this.cache = null;
-    void AsyncStorage.removeItem(this.key).catch(() => {});
+    if (Platform.OS !== 'web') {
+      void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+    }
+    void AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
   }
 }
 
-// ---------------------------------------------------------------------------
-// NHost client
-// ---------------------------------------------------------------------------
+const sessionStorageBackend = new SecureSessionStorage();
 
 const nhost = createClient({
   subdomain: process.env.EXPO_PUBLIC_NHOST_SUBDOMAIN ?? 'local',
   region: process.env.EXPO_PUBLIC_NHOST_REGION ?? 'local',
-  storage: new NhostAsyncStorage(),
+  storage: sessionStorageBackend,
 });
 
 // ---------------------------------------------------------------------------
@@ -107,8 +149,7 @@ const auth: AuthProvider = {
   },
 
   async getSession() {
-    // Brief wait for AsyncStorage to hydrate on cold start
-    await new Promise((r) => setTimeout(r, 100));
+    await sessionStorageBackend.hydrationPromise;
     return toAppSession(nhost.getUserSession());
   },
 
@@ -146,7 +187,6 @@ const COMPANIES_QUERY = `
         id
         name: company_name
         slug: company_code
-        rzpay_key_id
         address
         created_at
         updated_at
@@ -164,25 +204,29 @@ const PRODUCTS_QUERY = `
     products(
       where: {
         company_id: { _eq: $companyId }
+        is_active: { _eq: true }
         _or: [
           { name: { _ilike: $searchPattern } }
           { sku: { _ilike: $searchPattern } }
-          { barcode: { _ilike: $searchPattern } }
         ]
       }
       order_by: { name: asc }
       offset: $offset
       limit: $limit
     ) {
-      id company_id name sku barcode price currency quantity image_url created_at
+      id company_id name sku year color selling_price tax_percentage
+      category { name }
+      product_sizes(where: { is_active: { _eq: true } }) {
+        id size barcode stock
+      }
     }
     products_aggregate(
       where: {
         company_id: { _eq: $companyId }
+        is_active: { _eq: true }
         _or: [
           { name: { _ilike: $searchPattern } }
           { sku: { _ilike: $searchPattern } }
-          { barcode: { _ilike: $searchPattern } }
         ]
       }
     ) {
@@ -193,35 +237,38 @@ const PRODUCTS_QUERY = `
 
 const PRODUCT_BY_BARCODE_QUERY = `
   query GetProductByBarcode($companyId: uuid!, $barcode: String!) {
-    products(
-      where: { company_id: { _eq: $companyId }, barcode: { _eq: $barcode } }
+    product_sizes(
+      where: {
+        barcode: { _eq: $barcode }
+        is_active: { _eq: true }
+        product: { company_id: { _eq: $companyId }, is_active: { _eq: true } }
+      }
       limit: 1
     ) {
-      id company_id name sku barcode price currency quantity image_url created_at
+      id size barcode stock
+      product { id company_id name sku selling_price tax_percentage color year }
     }
   }
 `;
 
-const ORDERS_ALL_QUERY = `
-  query GetOrders($companyId: uuid!) {
-    orders(
+const SALES_QUERY = `
+  query GetSales($companyId: uuid!) {
+    sales(
       where: { company_id: { _eq: $companyId } }
       order_by: { created_at: desc }
     ) {
-      id company_id total_amount currency status payment_method
-      razorpay_order_id razorpay_payment_id created_at
+      id company_id sale_number total payment_method created_at
+      sale_items { product_name size quantity total }
     }
   }
 `;
 
-const ORDERS_FILTERED_QUERY = `
-  query GetOrdersFiltered($companyId: uuid!, $status: String!) {
-    orders(
-      where: { company_id: { _eq: $companyId }, status: { _eq: $status } }
-      order_by: { created_at: desc }
-    ) {
-      id company_id total_amount currency status payment_method
-      razorpay_order_id razorpay_payment_id created_at
+const CREATE_SALE_MUTATION = `
+  mutation CreateSale($object: sales_insert_input!) {
+    insert_sales_one(object: $object) {
+      id
+      sale_number
+      total
     }
   }
 `;
@@ -242,7 +289,6 @@ const data: DataProvider = {
       id: row.company.id,
       name: row.company.name,
       slug: row.company.slug || undefined,
-      ...(row.company.rzpay_key_id != null && { rzpay_key_id: row.company.rzpay_key_id }),
       meta: {
         address: row.company.address || undefined,
         logo_url: undefined,
@@ -265,9 +311,29 @@ const data: DataProvider = {
     });
     const d = (res.body as any).data;
 
+    const productRows = d?.products ?? [];
     const total = d?.products_aggregate?.aggregate?.count ?? 0;
+
+    const products: Product[] = [];
+    for (const p of productRows) {
+      const sizes = p.product_sizes ?? [];
+      for (const sz of sizes) {
+        products.push({
+          id: `${p.id}-${sz.id}`,
+          company_id: p.company_id,
+          name: `${p.name} (${sz.size})`,
+          sku: p.sku,
+          scan_code: sz.barcode ?? null,
+          price: p.selling_price ?? 0,
+          currency: '₹',
+          quantity: sz.stock ?? 0,
+          created_at: undefined,
+        });
+      }
+    }
+
     return {
-      products: d?.products ?? [],
+      products,
       total,
       has_more: offset + limit < total,
     };
@@ -279,25 +345,75 @@ const data: DataProvider = {
       variables: { companyId, barcode },
     });
     const d = (res.body as any).data;
-    return d?.products?.[0] ?? null;
+    const rows = d?.product_sizes ?? [];
+    const first = rows[0];
+    if (!first?.product) return null;
+
+    const p = first.product;
+    return {
+      id: p.id,
+      company_id: p.company_id,
+      name: p.name,
+      sku: p.sku,
+      scan_code: first.barcode ?? null,
+      price: p.selling_price ?? 0,
+      currency: '₹',
+      quantity: first.stock ?? 0,
+      size_id: first.id,
+      size: first.size,
+    } as Product;
   },
 
-  async fetchOrders(companyId, { status }) {
-    if (status && status !== 'all') {
-      const res = await nhost.graphql.request({
-        query: ORDERS_FILTERED_QUERY,
-        variables: { companyId, status },
-      });
-      const d = (res.body as any).data;
-      return d?.orders ?? [];
-    }
-
+  async fetchOrders(companyId, _opts) {
     const res = await nhost.graphql.request({
-      query: ORDERS_ALL_QUERY,
+      query: SALES_QUERY,
       variables: { companyId },
     });
     const d = (res.body as any).data;
-    return d?.orders ?? [];
+    const sales = d?.sales ?? [];
+    return sales.map((s: any) => ({
+      id: s.id,
+      company_id: s.company_id ?? companyId,
+      total_amount: s.total ?? 0,
+      currency: '₹',
+      status: 'success' as const,
+      payment_method: s.payment_method ?? 'cash',
+      created_at: s.created_at ?? new Date().toISOString(),
+    }));
+  },
+
+  async createSale(input: CreateSaleInput): Promise<CreateSaleResult | null> {
+    const object = {
+      company_id: input.company_id,
+      subtotal: input.subtotal,
+      tax_amount: input.tax_amount,
+      total: input.total,
+      payment_method: input.payment_method,
+      sale_items: {
+        data: input.sale_items.map((item) => ({
+          product_id: item.product_id,
+          size_id: item.size_id,
+          product_name: item.product_name,
+          size: item.size,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          tax_percentage: item.tax_percentage ?? 0,
+          tax_amount: item.tax_amount ?? 0,
+          total: item.total,
+        })),
+      },
+    };
+    const res = await nhost.graphql.request({
+      query: CREATE_SALE_MUTATION,
+      variables: { object },
+    });
+    const body = res.body as any;
+    const err = body.errors?.[0];
+    if (err) {
+      throw new Error(err.message ?? 'Create sale failed');
+    }
+    const sale = body.data?.insert_sales_one ?? null;
+    return sale;
   },
 };
 

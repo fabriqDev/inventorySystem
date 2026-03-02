@@ -1,5 +1,5 @@
 import { backend } from '@/lib/backend';
-import { MOCK_PRODUCTS } from '@/lib/mock-data';
+import { getMockProducts } from '@/lib/mock-data';
 import type { Product, ProductListResponse } from '@/types/product';
 
 export const PRODUCTS_PAGE_SIZE = 40;
@@ -25,17 +25,18 @@ export async function fetchProductByBarcode(
   useMock: boolean,
 ): Promise<Product | null> {
   if (useMock) {
-    const products = MOCK_PRODUCTS[companyId] ?? [];
-    return products.find((p) => p.barcode === barcode) ?? null;
+    const products = await getMockProducts(companyId);
+    const trimmed = barcode.trim();
+    return products.find((p) => (p.scan_code ?? '').trim() === trimmed) ?? null;
   }
   return backend.data.fetchProductByBarcode(companyId, barcode);
 }
 
-function mockFetchProducts(
+async function mockFetchProducts(
   companyId: string,
   { search, page = 1, limit = PRODUCTS_PAGE_SIZE }: FetchProductsOptions,
-): ProductListResponse {
-  let products = MOCK_PRODUCTS[companyId] ?? [];
+): Promise<ProductListResponse> {
+  let products = await getMockProducts(companyId);
 
   if (search) {
     const q = search.toLowerCase();
@@ -43,7 +44,7 @@ function mockFetchProducts(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.sku.toLowerCase().includes(q) ||
-        p.barcode?.includes(q),
+        (p.scan_code ?? '').toLowerCase().includes(q),
     );
   }
 

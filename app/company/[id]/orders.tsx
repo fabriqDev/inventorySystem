@@ -6,6 +6,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
@@ -40,6 +41,7 @@ export default function OrdersScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
   const { useMockData } = useDataSource();
 
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -148,7 +150,7 @@ export default function OrdersScreen() {
           data={orders}
           keyExtractor={(item) => item.id}
           renderItem={renderOrder}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           showsVerticalScrollIndicator={false}
         />

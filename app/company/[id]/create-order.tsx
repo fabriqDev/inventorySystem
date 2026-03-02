@@ -1,105 +1,89 @@
 import { useCallback, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 
+import { AddReturnItemModal } from '@/components/add-return-item-modal';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { ProductSearchList } from '@/components/product-search-list';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useCart } from '@/contexts/cart-context';
-import { useDataSource } from '@/contexts/data-source-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { fetchProductByBarcode } from '@/lib/api/products';
 import { formatPrice } from '@/lib/format';
 import type { CartItem } from '@/types/cart';
-import type { Product } from '@/types/product';
 
 export default function CreateOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const { useMockData } = useDataSource();
+  const insets = useSafeAreaInsets();
 
-  const { items, addItem, removeItem, updateQuantity, total, currency, itemCount } = useCart();
+  const { items, removeItem, updateQuantity, total, currency, itemCount } = useCart();
 
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [scanVisible, setScanVisible] = useState(false);
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [addReturnVisible, setAddReturnVisible] = useState(false);
+  const [addReturnMode, setAddReturnMode] = useState<'add' | 'return'>('add');
 
-  const handleSelectProduct = useCallback(
-    (product: Product) => {
-      addItem(product);
-      setSearchVisible(false);
-    },
-    [addItem],
-  );
+  const openAddItem = useCallback(() => {
+    setAddReturnMode('add');
+    setAddReturnVisible(true);
+  }, []);
 
-  const handleBarcodeLookup = useCallback(async () => {
-    if (!barcodeInput.trim()) return;
-    setScanError(null);
-    try {
-      const product = await fetchProductByBarcode(id, barcodeInput.trim(), useMockData);
-      if (product) {
-        addItem(product);
-        setBarcodeInput('');
-        setScanVisible(false);
-      } else {
-        setScanError('No product found for this barcode');
-      }
-    } catch {
-      setScanError('Lookup failed. Please try again.');
-    }
-  }, [id, barcodeInput, useMockData, addItem]);
+  const openReturnItem = useCallback(() => {
+    setAddReturnMode('return');
+    setAddReturnVisible(true);
+  }, []);
 
   const handleCheckout = useCallback(() => {
     router.push(`/company/${id}/checkout` as any);
   }, [id, router]);
 
   const renderCartItem = useCallback(
-    ({ item }: { item: CartItem }) => (
-      <View style={[styles.cartCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
-        <View style={styles.cartBody}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1}>
-            {item.product.name}
+    ({ item }: { item: CartItem }) => {
+      const isReturn = item.isReturn ?? false;
+      const lineTotal = item.unit_price * item.quantity * (isReturn ? -1 : 1);
+      return (
+        <View style={[styles.cartCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
+          <View style={styles.cartBody}>
+            <View style={styles.titleRow}>
+              <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.cartItemName}>
+                {item.product.name}
+              </ThemedText>
+              {isReturn && (
+                <View style={[styles.returnBadge, { backgroundColor: '#FFEBEE' }]}>
+                  <ThemedText style={styles.returnBadgeText}>Return</ThemedText>
+                </View>
+              )}
+            </View>
+            <ThemedText style={[styles.unitPrice, { color: colors.icon }]}>
+              {formatPrice(item.unit_price, item.currency)} each
+            </ThemedText>
+          </View>
+          <View style={styles.qtyRow}>
+            <Pressable
+              onPress={() => updateQuantity(item.product_id, item.quantity - 1, isReturn)}
+              style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
+            >
+              <IconSymbol name="minus" size={16} color={colors.text} />
+            </Pressable>
+            <ThemedText style={styles.qtyText}>{item.quantity}</ThemedText>
+            <Pressable
+              onPress={() => updateQuantity(item.product_id, item.quantity + 1, isReturn)}
+              style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
+            >
+              <IconSymbol name="plus" size={16} color={colors.text} />
+            </Pressable>
+          </View>
+          <ThemedText type="defaultSemiBold" style={[styles.subtotal, isReturn && styles.subtotalReturn]}>
+            {isReturn ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
           </ThemedText>
-          <ThemedText style={[styles.unitPrice, { color: colors.icon }]}>
-            {formatPrice(item.unit_price, item.currency)} each
-          </ThemedText>
-        </View>
-        <View style={styles.qtyRow}>
-          <Pressable
-            onPress={() => updateQuantity(item.product_id, item.quantity - 1)}
-            style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
-          >
-            <IconSymbol name="minus" size={16} color={colors.text} />
-          </Pressable>
-          <ThemedText style={styles.qtyText}>{item.quantity}</ThemedText>
-          <Pressable
-            onPress={() => updateQuantity(item.product_id, item.quantity + 1)}
-            style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
-          >
-            <IconSymbol name="plus" size={16} color={colors.text} />
+          <Pressable onPress={() => removeItem(item.product_id, isReturn)} hitSlop={8}>
+            <IconSymbol name="trash" size={18} color="#C62828" />
           </Pressable>
         </View>
-        <ThemedText type="defaultSemiBold" style={styles.subtotal}>
-          {formatPrice(item.unit_price * item.quantity, item.currency)}
-        </ThemedText>
-        <Pressable onPress={() => removeItem(item.product_id)} hitSlop={8}>
-          <IconSymbol name="trash" size={18} color="#C62828" />
-        </Pressable>
-      </View>
-    ),
+      );
+    },
     [colors, updateQuantity, removeItem],
   );
 
@@ -107,21 +91,21 @@ export default function CreateOrderScreen() {
     <ThemedView style={styles.container}>
       <Stack.Screen options={{ title: 'Create Order' }} />
 
-      {/* Action buttons */}
+      {/* Action buttons - stacked vertically */}
       <View style={styles.actions}>
         <Pressable
-          onPress={() => setScanVisible(true)}
-          style={[styles.actionBtn, { backgroundColor: colors.tint }]}
+          onPress={openAddItem}
+          style={[styles.actionBtn, styles.actionBtnPrimary, { backgroundColor: colors.tint }]}
         >
-          <IconSymbol name="barcode.viewfinder" size={22} color="#fff" />
-          <ThemedText style={styles.actionText}>Scan</ThemedText>
+          <IconSymbol name="plus.circle.fill" size={22} color="#fff" />
+          <ThemedText style={styles.actionText}>Add item</ThemedText>
         </Pressable>
         <Pressable
-          onPress={() => setSearchVisible(true)}
-          style={[styles.actionBtn, { backgroundColor: colors.tint }]}
+          onPress={openReturnItem}
+          style={[styles.actionBtn, { borderColor: colors.tint, borderWidth: 2 }]}
         >
-          <IconSymbol name="magnifyingglass" size={22} color="#fff" />
-          <ThemedText style={styles.actionText}>Search</ThemedText>
+          <IconSymbol name="arrow.uturn.backward.circle" size={22} color={colors.tint} />
+          <ThemedText style={[styles.actionTextSecondary, { color: colors.tint }]}>Return item</ThemedText>
         </Pressable>
       </View>
 
@@ -130,15 +114,15 @@ export default function CreateOrderScreen() {
         <View style={styles.emptyCart}>
           <IconSymbol name="cart.fill" size={48} color={colors.icon + '50'} />
           <ThemedText style={[styles.emptyText, { color: colors.icon }]}>
-            Cart is empty. Tap Scan or Search to add products.
+            Cart is empty. Tap Add item or Return item to scan or search.
           </ThemedText>
         </View>
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item) => item.product_id}
+          keyExtractor={(item) => `${item.product_id}-${item.isReturn ?? false}`}
           renderItem={renderCartItem}
-          contentContainerStyle={styles.cartList}
+          contentContainerStyle={[styles.cartList, { paddingBottom: 120 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
           showsVerticalScrollIndicator={false}
         />
@@ -146,7 +130,16 @@ export default function CreateOrderScreen() {
 
       {/* Bottom bar */}
       {items.length > 0 && (
-        <View style={[styles.bottomBar, { backgroundColor: colors.background, borderTopColor: colors.icon + '20' }]}>
+        <View
+          style={[
+            styles.bottomBar,
+            {
+              backgroundColor: colors.background,
+              borderTopColor: colors.icon + '20',
+              paddingBottom: 16 + insets.bottom,
+            },
+          ]}
+        >
           <View>
             <ThemedText style={[styles.totalLabel, { color: colors.icon }]}>
               {itemCount} item{itemCount > 1 ? 's' : ''}
@@ -163,62 +156,13 @@ export default function CreateOrderScreen() {
         </View>
       )}
 
-      {/* Search modal */}
-      <Modal visible={searchVisible} animationType="slide" onRequestClose={() => setSearchVisible(false)}>
-        <ThemedView style={styles.modalFull}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.icon + '20' }]}>
-            <ThemedText type="subtitle">Select Product</ThemedText>
-            <Pressable onPress={() => setSearchVisible(false)} hitSlop={12}>
-              <IconSymbol name="xmark" size={22} color={colors.text} />
-            </Pressable>
-          </View>
-          <ProductSearchList companyId={id} onSelectProduct={handleSelectProduct} />
-        </ThemedView>
-      </Modal>
-
-      {/* Scan (barcode entry) modal */}
-      <Modal
-        visible={scanVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setScanVisible(false)}
-      >
-        <Pressable style={styles.overlay} onPress={() => setScanVisible(false)}>
-          <Pressable
-            style={[styles.scanCard, { backgroundColor: colors.background }]}
-            onPress={() => {}}
-          >
-            <ThemedText type="subtitle">Enter Barcode</ThemedText>
-            <TextInput
-              style={[styles.barcodeInput, { color: colors.text, borderColor: colors.icon + '40' }]}
-              placeholder="Scan or type barcode…"
-              placeholderTextColor={colors.icon}
-              value={barcodeInput}
-              onChangeText={(t) => { setBarcodeInput(t); setScanError(null); }}
-              autoFocus
-              returnKeyType="search"
-              onSubmitEditing={handleBarcodeLookup}
-            />
-            {scanError && (
-              <ThemedText style={styles.scanError}>{scanError}</ThemedText>
-            )}
-            <View style={styles.scanActions}>
-              <Pressable
-                onPress={() => { setScanVisible(false); setBarcodeInput(''); setScanError(null); }}
-                style={[styles.scanBtn, { backgroundColor: colors.icon + '15' }]}
-              >
-                <ThemedText>Cancel</ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={handleBarcodeLookup}
-                style={[styles.scanBtn, { backgroundColor: colors.tint }]}
-              >
-                <ThemedText style={{ color: '#fff', fontWeight: '600' }}>Look Up</ThemedText>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <AddReturnItemModal
+        visible={addReturnVisible}
+        onClose={() => setAddReturnVisible(false)}
+        mode={addReturnMode}
+        companyId={id}
+        onItemAdded={() => setAddReturnVisible(false)}
+      />
     </ThemedView>
   );
 }
@@ -226,13 +170,12 @@ export default function CreateOrderScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   actions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   actionBtn: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -240,7 +183,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
   },
+  actionBtnPrimary: {},
   actionText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  actionTextSecondary: { fontWeight: '600', fontSize: 15 },
   emptyCart: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
   emptyText: { textAlign: 'center', lineHeight: 22 },
   cartList: { paddingHorizontal: 16, paddingBottom: 120 },
@@ -254,11 +199,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   cartBody: { flex: 1, gap: 2 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  cartItemName: { flex: 1 },
+  returnBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  returnBadgeText: { fontSize: 11, fontWeight: '600', color: '#C62828' },
   unitPrice: { fontSize: 12 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   qtyBtn: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   qtyText: { fontSize: 15, fontWeight: '600', minWidth: 20, textAlign: 'center' },
   subtotal: { minWidth: 70, textAlign: 'right', fontSize: 14 },
+  subtotalReturn: { color: '#C62828' },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -282,41 +232,4 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   checkoutText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  modalFull: { flex: 1 },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  scanCard: {
-    width: '100%',
-    maxWidth: 400,
-    borderRadius: 16,
-    padding: 24,
-    gap: 16,
-  },
-  barcodeInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-  },
-  scanError: { color: '#C62828', fontSize: 13 },
-  scanActions: { flexDirection: 'row', gap: 12 },
-  scanBtn: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
 });

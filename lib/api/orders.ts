@@ -1,5 +1,5 @@
 import { backend } from '@/lib/backend';
-import { MOCK_ORDERS } from '@/lib/mock-data';
+import { getMockOrders } from '@/lib/mock-data';
 import type { Order, OrderStatus } from '@/types/order';
 
 interface FetchOrdersOptions {
@@ -15,11 +15,11 @@ export async function fetchOrders(
   return backend.data.fetchOrders(companyId, options);
 }
 
-function mockFetchOrders(
+async function mockFetchOrders(
   companyId: string,
   { status }: FetchOrdersOptions,
-): Order[] {
-  let orders = MOCK_ORDERS[companyId] ?? [];
+): Promise<Order[]> {
+  let orders = await getMockOrders(companyId);
 
   if (status && status !== 'all') {
     orders = orders.filter((o) => o.status === status);

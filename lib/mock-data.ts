@@ -1,117 +1,34 @@
+import companiesJson from '@/assets/mock/companies.json';
+import productsJson from '@/assets/mock/products.json';
+import ordersJson from '@/assets/mock/orders.json';
 import type { CompanyWithRole } from '@/types/company';
-import type { Order } from '@/types/order';
 import type { Product } from '@/types/product';
+import type { Order } from '@/types/order';
 
-export const MOCK_COMPANIES: CompanyWithRole[] = [
-  {
-    id: '1',
-    name: 'Indrapuram School - Crossings Republik',
-    slug: 'indrapuram-branch-crossings-republik',
-    meta: { address: '123 Education Lane, Mumbai' },
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-    role: 'admin',
-    visible_tiles: ['inventory', 'sale_history', 'new_sale'],
-  },
-  {
-    id: '2',
-    name: 'Indrapuram School - Ghaziabad',
-    slug: 'indrapuram-school-ghaziabad',
-    meta: { address: '456 Knowledge Park, Delhi' },
-    created_at: '2024-02-15T00:00:00Z',
-    updated_at: '2024-02-15T00:00:00Z',
-    role: 'employee',
-    visible_tiles: ['inventory', 'new_sale'],
-  },
-  {
-    id: '3',
-    name: 'Bright Future Institutiton',
-    slug: 'bright-future',
-    meta: { address: '789 Scholar St, Bangalore' },
-    created_at: '2024-03-10T00:00:00Z',
-    updated_at: '2024-03-10T00:00:00Z',
-    role: 'super_admin',
-    visible_tiles: ['inventory', 'sale_history', 'new_sale'],
-  },
-  {
-    id: '4',
-    name: 'Little Stars Playschool',
-    slug: 'little-stars',
-    meta: { address: '321 Rainbow Road, Pune' },
-    created_at: '2024-04-05T00:00:00Z',
-    updated_at: '2024-04-05T00:00:00Z',
-    role: 'admin',
-    visible_tiles: ['inventory', 'sale_history'],
-  },
-];
+const MIN_LATENCY_MS = 500;
+const MAX_LATENCY_MS = 2000;
 
-export const MOCK_PRODUCTS: Record<string, Product[]> = {
-  '1': [
-    { id: 'p1-01', company_id: '1', name: 'Shirt White - 2025', sku: 'NB-R-100', barcode: '8901234560001', price: 4500, currency: '₹', quantity: 150, image_url: null, created_at: '2024-06-01T00:00:00Z' },
-    { id: 'p1-02', company_id: '1', name: 'T-shirt Sport - 2025', sku: 'PB-SET-12', barcode: '8901234560002', price: 12000, currency: '₹', quantity: 80, image_url: null, created_at: '2024-06-01T00:00:00Z' },
-    { id: 'p1-03', company_id: '1', name: 'Skirt Standard - 2025', sku: 'GB-STD-01', barcode: '8901234560003', price: 25000, currency: '₹', quantity: 45, image_url: null, created_at: '2024-06-02T00:00:00Z' },
-    { id: 'p1-04', company_id: '1', name: 'Navy Check Shorts - 2025', sku: 'SB-BLU-M', barcode: '8901234560004', price: 150000, currency: '₹', quantity: 30, image_url: null, created_at: '2024-06-02T00:00:00Z' },
-    { id: 'p1-05', company_id: '1', name: 'Navy Check Pants- 2025', sku: 'WB-500-BL', barcode: '8901234560005', price: 35000, currency: '₹', quantity: 60, image_url: null, created_at: '2024-06-03T00:00:00Z' },
-    { id: 'p1-06', company_id: '1', name: 'Grey-orange Summer Socks - 2025', sku: 'TB-MTH-05', barcode: '8901234560006', price: 27500, currency: '₹', quantity: 100, image_url: null, created_at: '2024-06-03T00:00:00Z' },
-    { id: 'p1-07', company_id: '1', name: 'White H/S MBL shirt - 2025', sku: 'TB-SCI-05', barcode: '8901234560007', price: 30000, currency: '₹', quantity: 95, image_url: null, created_at: '2024-06-04T00:00:00Z' },
-    { id: 'p1-08', company_id: '1', name: 'Green House H/S Tshirt - 2025', sku: 'ER-PCK-5', barcode: '8901234560008', price: 2500, currency: '₹', quantity: 200, image_url: null, created_at: '2024-06-04T00:00:00Z' },
-    { id: 'p1-09', company_id: '1', name: 'Grey-Maroon Summer Socks - 2025', sku: 'SH-MTL-01', barcode: '8901234560009', price: 1500, currency: '₹', quantity: 180, image_url: null, created_at: '2024-06-05T00:00:00Z' },
-    { id: 'p1-10', company_id: '1', name: 'Green House H/S Tshirt - 2025', sku: 'DP-A4-50', barcode: '8901234560010', price: 15000, currency: '₹', quantity: 70, image_url: null, created_at: '2024-06-05T00:00:00Z' },
-    { id: 'p1-11', company_id: '1', name: 'Crayons 24-Pack - 2025', sku: 'CR-24-PKT', barcode: '8901234560011', price: 18000, currency: '₹', quantity: 55, image_url: null, created_at: '2024-06-06T00:00:00Z' },
-    { id: 'p1-12', company_id: '1', name: 'Grey Summer House Lower - 2025', sku: 'SU-SHT-W', barcode: '8901234560012', price: 45000, currency: '₹', quantity: 40, image_url: null, created_at: '2024-06-06T00:00:00Z' },
-  ],
-  '2': [
-    { id: 'p2-01', company_id: '2', name: 'Shirt White - 2025', sku: 'NB-G-200', barcode: '8902345670001', price: 7500, currency: '₹', quantity: 120, image_url: null, created_at: '2024-07-01T00:00:00Z' },
-    { id: 'p2-02', company_id: '2', name: 'T-shirt Sport - 2025', sku: 'BP-BLU-10', barcode: '8902345670002', price: 8000, currency: '₹', quantity: 200, image_url: null, created_at: '2024-07-01T00:00:00Z' },
-    { id: 'p2-03', company_id: '2', name: 'Skirt Standard - 2025', sku: 'LC-SML-01', barcode: '8902345670003', price: 55000, currency: '₹', quantity: 25, image_url: null, created_at: '2024-07-02T00:00:00Z' },
-    { id: 'p2-04', company_id: '2', name: 'Navy Check Shorts - 2025', sku: 'MS-STD-01', barcode: '8902345670004', price: 350000, currency: '₹', quantity: 10, image_url: null, created_at: '2024-07-02T00:00:00Z' },
-    { id: 'p2-05', company_id: '2', name: 'Navy Check Pants - 2025', sku: 'SK-GR8-01', barcode: '8902345670005', price: 120000, currency: '₹', quantity: 35, image_url: null, created_at: '2024-07-03T00:00:00Z' },
-    { id: 'p2-06', company_id: '2', name: 'Grey-orange Summer Socks - 2025', sku: 'CD-SET-01', barcode: '8902345670006', price: 15000, currency: '₹', quantity: 90, image_url: null, created_at: '2024-07-03T00:00:00Z' },
-    { id: 'p2-07', company_id: '2', name: 'White H/S MBL Shirt - 2025', sku: 'PP-A4-500', barcode: '8902345670007', price: 22000, currency: '₹', quantity: 50, image_url: null, created_at: '2024-07-04T00:00:00Z' },
-    { id: 'p2-08', company_id: '2', name: 'Green House H/S Tshirt - 2025', sku: 'WM-SET-04', barcode: '8902345670008', price: 18000, currency: '₹', quantity: 65, image_url: null, created_at: '2024-07-04T00:00:00Z' },
-  ],
-  '3': [
-    { id: 'p3-01', company_id: '3', name: 'Shirt White - 2025', sku: 'NB-P-200', barcode: '8903456780001', price: 6000, currency: '₹', quantity: 130, image_url: null, created_at: '2024-08-01T00:00:00Z' },
-    { id: 'p3-02', company_id: '3', name: 'T-shirt Sport - 2025', sku: 'CL-SCI-01', barcode: '8903456780002', price: 85000, currency: '₹', quantity: 40, image_url: null, created_at: '2024-08-01T00:00:00Z' },
-    { id: 'p3-03', company_id: '3', name: 'Skirt Standard - 2025', sku: 'SS-WHT-M', barcode: '8903456780003', price: 180000, currency: '₹', quantity: 20, image_url: null, created_at: '2024-08-02T00:00:00Z' },
-    { id: 'p3-04', company_id: '3', name: 'Navy Check Shorts - 2025', sku: 'AS-A3-40', barcode: '8903456780004', price: 25000, currency: '₹', quantity: 55, image_url: null, created_at: '2024-08-02T00:00:00Z' },
-    { id: 'p3-05', company_id: '3', name: 'Navy Check Pants - 2025', sku: 'OP-36-01', barcode: '8903456780005', price: 35000, currency: '₹', quantity: 45, image_url: null, created_at: '2024-08-03T00:00:00Z' },
-    { id: 'p3-06', company_id: '3', name: 'Grey-orange Summer Socks - 2025', sku: 'TB-HIN-07', barcode: '8903456780006', price: 22000, currency: '₹', quantity: 80, image_url: null, created_at: '2024-08-03T00:00:00Z' },
-    { id: 'p3-07', company_id: '3', name: 'White H/S MBL Shirt - 2025', sku: 'TB-ENG-07', barcode: '8903456780007', price: 24000, currency: '₹', quantity: 85, image_url: null, created_at: '2024-08-04T00:00:00Z' },
-    { id: 'p3-08', company_id: '3', name: 'Green House H/S Tshirt - 2025', sku: 'ST-STR-01', barcode: '8903456780008', price: 15000, currency: '₹', quantity: 60, image_url: null, created_at: '2024-08-04T00:00:00Z' },
-  ],
-  '4': [
-    { id: 'p4-01', company_id: '4', name: 'Shirt White - 2025', sku: 'CB-08-01', barcode: '8904567890001', price: 5000, currency: '₹', quantity: 100, image_url: null, created_at: '2024-09-01T00:00:00Z' },
-    { id: 'p4-02', company_id: '4', name: 'T-shirt Sport - 2025', sku: 'PD-04-01', barcode: '8904567890002', price: 25000, currency: '₹', quantity: 40, image_url: null, created_at: '2024-09-01T00:00:00Z' },
-    { id: 'p4-03', company_id: '4', name: 'Skirt Standard - 2025', sku: 'PS-BK-01', barcode: '8904567890003', price: 15000, currency: '₹', quantity: 70, image_url: null, created_at: '2024-09-02T00:00:00Z' },
-    { id: 'p4-04', company_id: '4', name: 'Navy Check Shorts - 2025', sku: 'BB-50-01', barcode: '8904567890004', price: 45000, currency: '₹', quantity: 25, image_url: null, created_at: '2024-09-02T00:00:00Z' },
-    { id: 'p4-05', company_id: '4', name: 'Grey-Maroon Summer Socks - 2025', sku: 'FP-SET-06', barcode: '8904567890005', price: 20000, currency: '₹', quantity: 35, image_url: null, created_at: '2024-09-03T00:00:00Z' },
-    { id: 'p4-06', company_id: '4', name: 'Grey Summer House Lower - 2025', sku: 'KA-PNK-01', barcode: '8904567890006', price: 18000, currency: '₹', quantity: 30, image_url: null, created_at: '2024-09-03T00:00:00Z' },
-  ],
-};
+function randomDelayMs(): number {
+  return Math.floor(Math.random() * (MAX_LATENCY_MS - MIN_LATENCY_MS + 1)) + MIN_LATENCY_MS;
+}
 
-export const MOCK_ORDERS: Record<string, Order[]> = {
-  '1': [
-    { id: 'ord-1a2b3c4d-1111-1111-1111-111111111111', company_id: '1', total_amount: 42000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2025-12-15T10:30:00Z' },
-    { id: 'ord-2b3c4d5e-1111-1111-1111-222222222222', company_id: '1', total_amount: 175000, currency: '₹', status: 'success', payment_method: 'online', razorpay_order_id: 'order_abc1', razorpay_payment_id: 'pay_xyz1', created_at: '2025-12-18T14:20:00Z' },
-    { id: 'ord-3c4d5e6f-1111-1111-1111-333333333333', company_id: '1', total_amount: 55000, currency: '₹', status: 'failed', payment_method: 'online', razorpay_order_id: 'order_abc2', razorpay_payment_id: null, created_at: '2025-12-20T09:15:00Z' },
-    { id: 'ord-4d5e6f7a-1111-1111-1111-444444444444', company_id: '1', total_amount: 12500, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2026-01-05T11:00:00Z' },
-    { id: 'ord-5e6f7a8b-1111-1111-1111-555555555555', company_id: '1', total_amount: 90000, currency: '₹', status: 'pending', payment_method: 'online', razorpay_order_id: 'order_abc3', razorpay_payment_id: null, created_at: '2026-01-10T16:45:00Z' },
-    { id: 'ord-6f7a8b9c-1111-1111-1111-666666666666', company_id: '1', total_amount: 30000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2026-02-01T08:30:00Z' },
-  ],
-  '2': [
-    { id: 'ord-1a2b3c4d-2222-2222-2222-111111111111', company_id: '2', total_amount: 350000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2025-11-20T09:00:00Z' },
-    { id: 'ord-2b3c4d5e-2222-2222-2222-222222222222', company_id: '2', total_amount: 82000, currency: '₹', status: 'failed', payment_method: 'online', razorpay_order_id: 'order_gv1', razorpay_payment_id: null, created_at: '2026-01-12T15:30:00Z' },
-  ],
-  '3': [
-    { id: 'ord-1a2b3c4d-3333-3333-3333-111111111111', company_id: '3', total_amount: 205000, currency: '₹', status: 'success', payment_method: 'online', razorpay_order_id: 'order_bf1', razorpay_payment_id: 'pay_bf1', created_at: '2025-10-05T12:00:00Z' },
-    { id: 'ord-2b3c4d5e-3333-3333-3333-222222222222', company_id: '3', total_amount: 46000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2025-11-15T10:20:00Z' },
-    { id: 'ord-3c4d5e6f-3333-3333-3333-333333333333', company_id: '3', total_amount: 180000, currency: '₹', status: 'success', payment_method: 'online', razorpay_order_id: 'order_bf2', razorpay_payment_id: 'pay_bf2', created_at: '2026-01-20T14:10:00Z' },
-    { id: 'ord-4d5e6f7a-3333-3333-3333-444444444444', company_id: '3', total_amount: 35000, currency: '₹', status: 'pending', payment_method: 'online', razorpay_order_id: 'order_bf3', razorpay_payment_id: null, created_at: '2026-02-10T11:45:00Z' },
-  ],
-  '4': [
-    { id: 'ord-1a2b3c4d-4444-4444-4444-111111111111', company_id: '4', total_amount: 75000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2025-12-01T09:30:00Z' },
-    { id: 'ord-2b3c4d5e-4444-4444-4444-222222222222', company_id: '4', total_amount: 45000, currency: '₹', status: 'success', payment_method: 'cash', razorpay_order_id: null, razorpay_payment_id: null, created_at: '2026-01-08T10:00:00Z' },
-    { id: 'ord-3c4d5e6f-4444-4444-4444-333333333333', company_id: '4', total_amount: 20000, currency: '₹', status: 'failed', payment_method: 'online', razorpay_order_id: 'order_ls1', razorpay_payment_id: null, created_at: '2026-02-05T16:00:00Z' },
-  ],
-};
+function simulateNetwork<T>(data: T): Promise<T> {
+  const delay = randomDelayMs();
+  return new Promise((resolve) =>
+    setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), delay),
+  );
+}
+
+export async function getMockCompanies(): Promise<CompanyWithRole[]> {
+  return simulateNetwork(companiesJson as unknown as CompanyWithRole[]);
+}
+
+export async function getMockProducts(companyId: string): Promise<Product[]> {
+  const map = productsJson as unknown as Record<string, Product[]>;
+  return simulateNetwork(map[companyId] ?? []);
+}
+
+export async function getMockOrders(companyId: string): Promise<Order[]> {
+  const map = ordersJson as unknown as Record<string, Order[]>;
+  return simulateNetwork(map[companyId] ?? []);
+}

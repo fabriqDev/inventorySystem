@@ -30,11 +30,39 @@ export interface FetchOrdersOptions {
   status?: OrderStatus | 'all';
 }
 
+export interface CreateSaleItemInput {
+  product_id: string;
+  size_id: string;
+  product_name: string;
+  size: string;
+  quantity: number;
+  unit_price: number;
+  tax_percentage?: number;
+  tax_amount?: number;
+  total: number;
+}
+
+export interface CreateSaleInput {
+  company_id: string;
+  subtotal: number;
+  tax_amount: number;
+  total: number;
+  payment_method: string;
+  sale_items: CreateSaleItemInput[];
+}
+
+export interface CreateSaleResult {
+  id: string;
+  sale_number: string;
+  total: number;
+}
+
 export interface DataProvider {
   fetchCompanies(userId: string): Promise<CompanyWithRole[]>;
   fetchProducts(companyId: string, opts: FetchProductsOptions): Promise<ProductListResponse>;
   fetchProductByBarcode(companyId: string, barcode: string): Promise<Product | null>;
   fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<Order[]>;
+  createSale(input: CreateSaleInput): Promise<CreateSaleResult | null>;
 }
 
 export interface BackendProvider {

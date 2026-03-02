@@ -17,6 +17,7 @@ const MAPPING = {
   'house.fill': 'home',
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
+  'chevron.left': 'chevron-left',
   'chevron.right': 'chevron-right',
   'line.3.horizontal': 'menu',
   'rectangle.portrait.and.arrow.right': 'logout',
@@ -39,6 +40,8 @@ const MAPPING = {
   'clock.fill': 'schedule',
   'bag.fill': 'shopping-bag',
   'arrow.clockwise': 'refresh',
+  'plus.circle.fill': 'add-circle',
+  'arrow.uturn.backward.circle': 'undo',
 } as IconMapping;
 
 /**

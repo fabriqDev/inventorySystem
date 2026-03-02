@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -8,7 +9,6 @@ import {
   Switch,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -16,9 +16,9 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/auth-context';
-import { useAppTheme } from '@/contexts/theme-context';
-import { useDataSource } from '@/contexts/data-source-context';
 import { useCompany } from '@/contexts/company-context';
+import { useDataSource } from '@/contexts/data-source-context';
+import { useAppTheme } from '@/contexts/theme-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { fetchCompanies } from '@/lib/api/companies';
 import type { CompanyWithRole } from '@/types/company';
@@ -131,7 +131,7 @@ export default function HomeScreen() {
         <FlatList
           data={companies}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           renderItem={({ item }) => (
             <CompanyCard
               company={item}

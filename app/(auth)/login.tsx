@@ -102,7 +102,7 @@ export default function LoginScreen() {
         ]}
       >
         <View style={[styles.popupIconWrap, { backgroundColor: colors.tint }]}>
-          <MaterialIcons name="check" size={32} color="#fff" />
+          <MaterialIcons name="check" size={40} color="#fff" />
         </View>
         <ThemedText type="subtitle" style={styles.popupText}>
           Login successful!
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
   },
   popupOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
@@ -254,33 +254,33 @@ const styles = StyleSheet.create({
   popup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
+    gap: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 28,
+    borderRadius: 16,
     borderWidth: 1,
-    minWidth: 200,
-    maxWidth: 320,
+    minWidth: 280,
+    maxWidth: 400,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
   },
   popupWeb: {
     // Web: boxShadow is set via shadow* props in RN-web, but ensure it renders
     cursor: 'default' as const,
   },
   popupIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
   popupText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 18,
   },
   error: {
     color: '#dc2626',

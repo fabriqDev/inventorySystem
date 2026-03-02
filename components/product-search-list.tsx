@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -7,13 +7,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useDataSource } from '@/contexts/data-source-context';
+import { useProductCache } from '@/contexts/product-cache-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/lib/api/products';
 import { formatPrice } from '@/lib/format';
 import type { Product } from '@/types/product';
@@ -27,49 +28,80 @@ interface Props {
 export function ProductSearchList({ companyId, onSelectProduct, showQuantity }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
   const { useMockData } = useDataSource();
+  const {
+    getCachedProducts,
+    filterProducts,
+    isLoading: cacheLoading,
+    isCached,
+  } = useProductCache();
 
   const [search, setSearch] = useState('');
-  const debouncedSearch = useDebouncedValue(search);
-
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [backendResults, setBackendResults] = useState<Product[] | null>(null);
+  const [backendLoading, setBackendLoading] = useState(false);
+  const [backendLoadingMore, setBackendLoadingMore] = useState(false);
+  const [backendPage, setBackendPage] = useState(1);
+  const [backendHasMore, setBackendHasMore] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
     return () => { mountedRef.current = false; };
   }, []);
 
+  const localFiltered = useMemo(
+    () => filterProducts(companyId, search),
+    [companyId, filterProducts, search],
+  );
+
+  const displayProducts = backendResults !== null ? backendResults : localFiltered;
+  const showingBackend = backendResults !== null;
+  const showSearchBackendButton =
+    search.trim().length > 0 && localFiltered.length === 0 && !showingBackend;
+
   useEffect(() => {
-    setPage(1);
-    setLoading(true);
-    fetchProducts(companyId, { search: debouncedSearch, page: 1 }, useMockData)
-      .then((res) => {
-        if (!mountedRef.current) return;
-        setProducts(res.products);
-        setHasMore(res.has_more);
-      })
-      .catch(() => {})
-      .finally(() => { if (mountedRef.current) setLoading(false); });
-  }, [companyId, debouncedSearch, useMockData]);
+    setBackendResults(null);
+  }, [search]);
+
+  const runBackendSearch = useCallback(
+    (pageNum: number, append: boolean) => {
+      if (pageNum === 1) setBackendLoading(true);
+      else setBackendLoadingMore(true);
+      fetchProducts(
+        companyId,
+        { search: search.trim(), page: pageNum, limit: PRODUCTS_PAGE_SIZE },
+        useMockData,
+      )
+        .then((res) => {
+          if (!mountedRef.current) return;
+          if (append) {
+            setBackendResults((prev) => [...(prev ?? []), ...res.products]);
+          } else {
+            setBackendResults(res.products);
+          }
+          setBackendHasMore(res.has_more);
+          setBackendPage(pageNum);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (mountedRef.current) {
+            setBackendLoading(false);
+            setBackendLoadingMore(false);
+          }
+        });
+    },
+    [companyId, search, useMockData],
+  );
+
+  const handleSearchBackend = useCallback(() => {
+    setBackendResults(null);
+    runBackendSearch(1, false);
+  }, [runBackendSearch]);
 
   const loadMore = useCallback(() => {
-    if (!hasMore || loadingMore) return;
-    const nextPage = page + 1;
-    setLoadingMore(true);
-    fetchProducts(companyId, { search: debouncedSearch, page: nextPage }, useMockData)
-      .then((res) => {
-        if (!mountedRef.current) return;
-        setProducts((prev) => [...prev, ...res.products]);
-        setHasMore(res.has_more);
-        setPage(nextPage);
-      })
-      .catch(() => {})
-      .finally(() => { if (mountedRef.current) setLoadingMore(false); });
-  }, [companyId, debouncedSearch, hasMore, loadingMore, page, useMockData]);
+    if (!showingBackend || !backendHasMore || backendLoadingMore) return;
+    runBackendSearch(backendPage + 1, true);
+  }, [showingBackend, backendHasMore, backendLoadingMore, backendPage, runBackendSearch]);
 
   const renderItem = useCallback(
     ({ item }: { item: Product }) => (
@@ -127,30 +159,48 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity }: 
         )}
       </View>
 
-      {loading ? (
+      {cacheLoading && !isCached(companyId) ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.tint} />
         </View>
-      ) : products.length === 0 ? (
+      ) : backendLoading && displayProducts.length === 0 ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.tint} />
+        </View>
+      ) : displayProducts.length === 0 && !showSearchBackendButton ? (
         <View style={styles.center}>
           <ThemedText style={{ color: colors.icon }}>No products found</ThemedText>
         </View>
+      ) : showSearchBackendButton && displayProducts.length === 0 ? (
+        <View style={styles.center}>
+          <ThemedText style={[styles.noLocal, { color: colors.icon }]}>
+            No matching products in cache
+          </ThemedText>
+          <Pressable
+            onPress={handleSearchBackend}
+            style={[styles.searchBackendBtn, { borderColor: colors.tint }]}
+          >
+            <ThemedText style={{ color: colors.tint }}>Search backend</ThemedText>
+          </Pressable>
+        </View>
       ) : (
-        <FlatList
-          data={products}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.list}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.4}
-          ListFooterComponent={
-            loadingMore ? (
-              <ActivityIndicator style={styles.footer} color={colors.tint} />
-            ) : null
-          }
-          showsVerticalScrollIndicator={false}
-        />
+        <>
+          <FlatList
+            data={displayProducts}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            onEndReached={showingBackend ? loadMore : undefined}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={
+              backendLoadingMore ? (
+                <ActivityIndicator style={styles.footer} color={colors.tint} />
+              ) : null
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        </>
       )}
     </View>
   );
@@ -188,5 +238,12 @@ const styles = StyleSheet.create({
   priceText: { fontSize: 13, fontWeight: '600' },
   qty: { fontSize: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  noLocal: { marginBottom: 12 },
+  searchBackendBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderRadius: 10,
+  },
   footer: { paddingVertical: 16 },
 });

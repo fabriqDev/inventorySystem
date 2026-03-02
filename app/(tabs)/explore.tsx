@@ -1,4 +1,5 @@
 import { StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -9,9 +10,10 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 export default function ExploreScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <IconSymbol name="safari" size={64} color={colors.icon} />
       <ThemedText type="title" style={styles.title}>Coming Soon</ThemedText>
       <ThemedText style={[styles.subtitle, { color: colors.icon }]}>

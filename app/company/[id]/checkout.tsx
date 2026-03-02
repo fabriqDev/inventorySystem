@@ -1,4 +1,5 @@
 import { StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
@@ -10,9 +11,10 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 export default function CheckoutScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
 
   return (
-    <ThemedView style={styles.container}>
+    <ThemedView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ title: 'Checkout' }} />
       <IconSymbol name="bag.fill" size={64} color={colors.icon} />
       <ThemedText type="title" style={styles.title}>
