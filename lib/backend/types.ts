@@ -4,7 +4,12 @@ import type { Order, OrderStatus } from '@/types/order';
 
 export interface AppSession {
   accessToken: string;
-  user: { id: string; email?: string };
+  user: {
+    id: string;
+    email?: string;
+    displayName?: string;
+    phoneNumber?: string;
+  };
 }
 
 export interface AuthProvider {
@@ -12,7 +17,7 @@ export interface AuthProvider {
   signOut(): Promise<void>;
   getSession(): Promise<AppSession | null>;
   onAuthStateChange(cb: (session: AppSession | null) => void): () => void;
-  getUser(): Promise<{ id: string; email?: string } | null>;
+  getUser(): Promise<{ id: string; email?: string; displayName?: string; phoneNumber?: string } | null>;
 }
 
 export interface FetchProductsOptions {

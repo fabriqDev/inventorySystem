@@ -1,1 +1,1 @@
-export type TileId = 'inventory' | 'past_orders' | 'create_order';
+export type TileId = 'inventory' | 'sale_history' | 'new_sale';

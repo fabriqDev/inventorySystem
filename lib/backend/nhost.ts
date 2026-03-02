@@ -10,9 +10,7 @@ import type {
   AppSession,
   AuthProvider,
   BackendProvider,
-  DataProvider,
-  FetchOrdersOptions,
-  FetchProductsOptions,
+  DataProvider
 } from './types';
 
 // ---------------------------------------------------------------------------
@@ -75,7 +73,12 @@ function toAppSession(session: Session | null | undefined): AppSession | null {
   if (!session?.user) return null;
   return {
     accessToken: session.accessToken,
-    user: { id: session.user.id, email: session.user.email },
+    user: {
+      id: session.user.id,
+      email: session.user.email,
+      displayName: session.user.displayName || undefined,
+      phoneNumber: session.user.phoneNumber || undefined,
+    },
   };
 }
 
@@ -118,7 +121,12 @@ const auth: AuthProvider = {
   async getUser() {
     const session = nhost.getUserSession();
     if (!session?.user) return null;
-    return { id: session.user.id, email: session.user.email ?? undefined };
+    return {
+      id: session.user.id,
+      email: session.user.email ?? undefined,
+      displayName: session.user.displayName || undefined,
+      phoneNumber: session.user.phoneNumber || undefined,
+    };
   },
 };
 
@@ -128,11 +136,23 @@ const auth: AuthProvider = {
 
 const COMPANIES_QUERY = `
   query GetCompanies($userId: uuid!) {
-    user_companies(where: { user_id: { _eq: $userId } }) {
-      role
-      meta
+    user_company_roles(
+      where: { 
+        user_id: { _eq: $userId }
+        is_active: { _eq: true }
+      }
+    ) {
       company {
-        id name slug rzpay_key_id meta created_at updated_at
+        id
+        name: company_name
+        slug: company_code
+        address
+        created_at
+        updated_at
+      }
+      access_role {
+        role_name
+        visible_tiles
       }
     }
   }
@@ -211,13 +231,26 @@ const ORDERS_FILTERED_QUERY = `
 
 const data: DataProvider = {
   async fetchCompanies(userId) {
-    const res = await nhost.graphql.request({ query: COMPANIES_QUERY, variables: { userId } });
+    const res = await nhost.graphql.request({ 
+      query: COMPANIES_QUERY, 
+      variables: { userId } 
+    });
     const d = (res.body as any).data;
-
-    return (d?.user_companies ?? []).map((row: any) => ({
-      ...row.company,
-      role: row.role,
-      visible_tiles: row.meta?.visible_tiles ?? ['inventory', 'past_orders', 'create_order'],
+  
+    return (d?.user_company_roles ?? []).map((row: any) => ({
+      id: row.company.id,
+      name: row.company.name,
+      slug: row.company.slug || null,
+      rzpay_key_id: null,
+      meta: {
+        address: row.company.address || undefined,
+        logo_url: undefined,
+      },
+      created_at: row.company.created_at,
+      updated_at: row.company.updated_at,
+      role: row.access_role.role_name,
+      visible_tiles: row.access_role.visible_tiles || 
+        ['inventory', 'sale_history', 'new_sale'],
     }));
   },
 

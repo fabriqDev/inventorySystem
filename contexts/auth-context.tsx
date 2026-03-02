@@ -1,6 +1,6 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { backend } from '@/lib/backend';
 import type { AppSession } from '@/lib/backend/types';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 type AuthContextType = {
   session: AppSession | null;

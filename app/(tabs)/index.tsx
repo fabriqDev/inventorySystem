@@ -67,7 +67,7 @@ function CompanyCard({
 }
 
 export default function HomeScreen() {
-  const { signOut } = useAuth();
+  const { signOut, session } = useAuth();
   const router = useRouter();
   const colorScheme = useColorScheme();
   const { toggleTheme, isDark } = useAppTheme();
@@ -80,13 +80,17 @@ export default function HomeScreen() {
   const [companies, setCompanies] = useState<CompanyWithRole[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadCompanies = useCallback(() => {
     setLoading(true);
     fetchCompanies(useMockData)
       .then(setCompanies)
       .catch(() => setCompanies([]))
       .finally(() => setLoading(false));
   }, [useMockData]);
+
+  useEffect(() => {
+    loadCompanies();
+  }, [loadCompanies]);
 
   const handleCompanyPress = useCallback(
     (company: CompanyWithRole) => {
@@ -109,7 +113,9 @@ export default function HomeScreen() {
           <IconSymbol name="line.3.horizontal" size={26} color={colors.text} />
         </Pressable>
         <ThemedText type="subtitle" style={styles.headerTitle}>Your Schools</ThemedText>
-        <View style={{ width: 26 }} />
+        <Pressable onPress={loadCompanies} hitSlop={12} style={({ pressed }) => pressed && { opacity: 0.5 }}>
+          <IconSymbol name="arrow.clockwise" size={22} color={colors.text} />
+        </Pressable>
       </View>
 
       {/* Company List */}
@@ -161,6 +167,37 @@ export default function HomeScreen() {
                 <IconSymbol name="xmark" size={22} color={colors.text} />
               </Pressable>
             </View>
+
+            {/* User profile */}
+            {session?.user && (
+              <>
+                <View style={styles.profileSection}>
+                  <View style={[styles.profileAvatar, { backgroundColor: colors.tint + '18' }]}>
+                    <ThemedText style={[styles.profileAvatarText, { color: colors.tint }]}>
+                      {(session.user.displayName?.[0] ?? session.user.email?.[0] ?? '?').toUpperCase()}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.profileInfo}>
+                    {session.user.displayName && (
+                      <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                        {session.user.displayName}
+                      </ThemedText>
+                    )}
+                    {session.user.email && (
+                      <ThemedText style={[styles.profileDetail, { color: colors.icon }]} numberOfLines={1}>
+                        {session.user.email}
+                      </ThemedText>
+                    )}
+                    {session.user.phoneNumber && (
+                      <ThemedText style={[styles.profileDetail, { color: colors.icon }]} numberOfLines={1}>
+                        {session.user.phoneNumber}
+                      </ThemedText>
+                    )}
+                  </View>
+                </View>
+                <View style={[styles.menuDivider, { backgroundColor: colors.icon + '25' }]} />
+              </>
+            )}
 
             {/* Theme toggle */}
             <Pressable
@@ -317,5 +354,31 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#E53935',
     fontWeight: '600',
+  },
+  profileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  profileAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarText: {
+    fontSize: 22,
+    fontWeight: '700',
+  },
+  profileInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  profileDetail: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });
