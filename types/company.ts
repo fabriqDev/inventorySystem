@@ -6,7 +6,8 @@ export interface Company {
   id: string;
   name: string;
   slug?: string;
-  rzpay_key_id: string | null;
+  /** Razorpay key for this company; optional. */
+  rzpay_key_id?: string;
   meta: {
     address?: string;
     logo_url?: string;

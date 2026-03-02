@@ -18,12 +18,12 @@ const TILE_CONFIG: Record<TileId, { label: string; icon: IconName; description: 
     icon: 'archivebox.fill',
     description: 'View products & stock levels',
   },
-  past_orders: {
+  sale_history: {
     label: 'Sales',
     icon: 'chart.bar.fill',
     description: 'View past orders & revenue',
   },
-  create_order: {
+  new_sale: {
     label: 'Create Order',
     icon: 'cart.fill',
     description: 'Start a new order',
@@ -32,8 +32,8 @@ const TILE_CONFIG: Record<TileId, { label: string; icon: IconName; description: 
 
 const TILE_ROUTES: Record<TileId, string> = {
   inventory: 'inventory',
-  past_orders: 'orders',
-  create_order: 'create-order',
+  sale_history: 'orders',
+  new_sale: 'create-order',
 };
 
 export default function CompanyTilesScreen() {

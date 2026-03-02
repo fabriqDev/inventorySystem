@@ -146,6 +146,7 @@ const COMPANIES_QUERY = `
         id
         name: company_name
         slug: company_code
+        rzpay_key_id
         address
         created_at
         updated_at
@@ -240,8 +241,8 @@ const data: DataProvider = {
     return (d?.user_company_roles ?? []).map((row: any) => ({
       id: row.company.id,
       name: row.company.name,
-      slug: row.company.slug || null,
-      rzpay_key_id: null,
+      slug: row.company.slug || undefined,
+      ...(row.company.rzpay_key_id != null && { rzpay_key_id: row.company.rzpay_key_id }),
       meta: {
         address: row.company.address || undefined,
         logo_url: undefined,
@@ -249,7 +250,7 @@ const data: DataProvider = {
       created_at: row.company.created_at,
       updated_at: row.company.updated_at,
       role: row.access_role.role_name,
-      visible_tiles: row.access_role.visible_tiles || 
+      visible_tiles: row.access_role.visible_tiles ||
         ['inventory', 'sale_history', 'new_sale'],
     }));
   },
