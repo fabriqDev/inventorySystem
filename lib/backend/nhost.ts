@@ -9,12 +9,16 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import type { Product } from '@/types/product';
+import { toBackendError, toUserMessage } from '@/lib/backend/errors';
+import { toast } from '@/lib/toast';
 import type {
   AppSession,
   AuthProvider,
   BackendProvider,
-  CreateSaleInput,
-  CreateSaleResult,
+  CreateOrderInput,
+  CreateOrderResult,
+  CreateTransferInput,
+  CreateTransferResult,
   DataProvider,
 } from './types';
 
@@ -130,6 +134,23 @@ function gqlError(error: unknown): Error {
   return new Error(JSON.stringify(error));
 }
 
+async function gqlRequest<TData>(args: { query: string; variables?: Record<string, any> }): Promise<TData> {
+  try {
+    const res = await nhost.graphql.request(args);
+    const body = res.body as any;
+    const err = body?.errors?.[0];
+    if (err) {
+      const message = err.message ?? 'Request failed';
+      throw new Error(message);
+    }
+    return (body?.data ?? {}) as TData;
+  } catch (e) {
+    const be = toBackendError(e);
+    toast.show({ type: 'error', message: toUserMessage(be) });
+    throw be;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auth adapter
 // ---------------------------------------------------------------------------
@@ -172,17 +193,15 @@ const auth: AuthProvider = {
 };
 
 // ---------------------------------------------------------------------------
-// GraphQL queries (Hasura)
+// GraphQL queries (Hasura) — aligned to UpdatedBackendSchema + UpdatedFrontEndGraphQLQuries
 // ---------------------------------------------------------------------------
 
 const COMPANIES_QUERY = `
   query GetCompanies($userId: uuid!) {
-    user_company_roles(
-      where: { 
-        user_id: { _eq: $userId }
-        is_active: { _eq: true }
-      }
-    ) {
+    user_company_roles(where: { user_id: { _eq: $userId } }) {
+      access_role { role_type }
+    }
+    assigned_companies: user_company_roles(where: { user_id: { _eq: $userId } }) {
       company {
         id
         name: company_name
@@ -192,86 +211,288 @@ const COMPANIES_QUERY = `
         updated_at
       }
       access_role {
-        role_name
+        role_type
         visible_tiles
       }
+    }
+    all_companies: companies {
+      id
+      name: company_name
+      slug: company_code
+      address
+      created_at
+      updated_at
     }
   }
 `;
 
 const PRODUCTS_QUERY = `
-  query GetProducts($companyId: uuid!, $searchPattern: String!, $offset: Int!, $limit: Int!) {
-    products(
-      where: {
-        company_id: { _eq: $companyId }
-        is_active: { _eq: true }
-        _or: [
-          { name: { _ilike: $searchPattern } }
-          { sku: { _ilike: $searchPattern } }
-        ]
-      }
-      order_by: { name: asc }
-      offset: $offset
-      limit: $limit
+  query GetProducts($companyId: uuid!) {
+    product_inventory(
+      where: { company_id: { _eq: $companyId } }
+      order_by: { product: { name: asc } }
     ) {
-      id company_id name sku year color selling_price tax_percentage
-      category { name }
-      product_sizes(where: { is_active: { _eq: true } }) {
-        id size barcode stock
+      article_code
+      size
+      stock
+      selling_price
+      discount_percentage
+      tax_percentage
+      pending_transfer_items_aggregate(
+        where: {
+          transfer: {
+            source_company_id: { _eq: $companyId }
+            status: { _eq: "pending" }
+          }
+        }
+      ) {
+        aggregate { sum { quantity } }
       }
-    }
-    products_aggregate(
-      where: {
-        company_id: { _eq: $companyId }
-        is_active: { _eq: true }
-        _or: [
-          { name: { _ilike: $searchPattern } }
-          { sku: { _ilike: $searchPattern } }
-        ]
+      product {
+        id
+        name
+        description
+        color
+        uniform_type
+        year
       }
-    ) {
-      aggregate { count }
     }
   }
 `;
 
 const PRODUCT_BY_BARCODE_QUERY = `
   query GetProductByBarcode($companyId: uuid!, $barcode: String!) {
-    product_sizes(
+    product_inventory(
       where: {
-        barcode: { _eq: $barcode }
-        is_active: { _eq: true }
-        product: { company_id: { _eq: $companyId }, is_active: { _eq: true } }
+        article_code: { _eq: $barcode }
+        company_id: { _eq: $companyId }
       }
       limit: 1
     ) {
-      id size barcode stock
-      product { id company_id name sku selling_price tax_percentage color year }
+      article_code
+      size
+      stock
+      selling_price
+      discount_percentage
+      tax_percentage
+      pending_transfer_items_aggregate(
+        where: {
+          transfer: {
+            source_company_id: { _eq: $companyId }
+            status: { _eq: "pending" }
+          }
+        }
+      ) {
+        aggregate { sum { quantity } }
+      }
+      product {
+        id
+        name
+        description
+        color
+        uniform_type
+        year
+      }
     }
   }
 `;
 
-const SALES_QUERY = `
-  query GetSales($companyId: uuid!) {
-    sales(
-      where: { company_id: { _eq: $companyId } }
+const ORDERS_QUERY = `
+  query GetOrders($companyId: uuid!) {
+    order_history(
+      where: {
+        company_id: { _eq: $companyId }
+        order_items: { order_id: { _is_null: false } }
+      }
       order_by: { created_at: desc }
     ) {
-      id company_id sale_number total payment_method created_at
-      sale_items { product_name size quantity total }
+      order_id
+      company_id
+      total
+      payment_method
+      transaction_type
+      created_at
+      status
+      subtotal
+      order_items {
+        product_name
+        quantity
+        unit_price
+        total
+      }
     }
   }
 `;
 
-const CREATE_SALE_MUTATION = `
-  mutation CreateSale($object: sales_insert_input!) {
-    insert_sales_one(object: $object) {
-      id
-      sale_number
+const INSERT_ORDER_HISTORY_MUTATION = `
+  mutation CreateOrder($order: order_history_insert_input!) {
+    insert_order_history_one(object: $order) {
+      order_id
       total
     }
   }
 `;
+
+const INSERT_ORDER_ITEMS_MUTATION = `
+  mutation CreateOrderItems($items: [order_items_insert_input!]!) {
+    insert_order_items(objects: $items) {
+      affected_rows
+    }
+  }
+`;
+
+const PENDING_TRANSFERS_QUERY = `
+  query GetPendingTransfers($companyId: uuid!) {
+    inventory_transfers(
+      where: {
+        destination_company_id: { _eq: $companyId }
+        status: { _eq: "pending" }
+      }
+      order_by: { created_at: desc }
+    ) {
+      id
+      source_company_id
+      destination_company_id
+      status
+      notes
+      created_at
+      source_company { company_name }
+      destination_company { company_name }
+      created_by_user { display_name }
+      inventory_transfer_items { article_code quantity }
+    }
+  }
+`;
+
+const TRANSFER_HISTORY_QUERY = `
+  query GetTransferHistory($companyId: uuid!) {
+    inventory_transfers(
+      where: {
+        _or: [
+          { source_company_id: { _eq: $companyId } }
+          { destination_company_id: { _eq: $companyId } }
+        ]
+        status: { _in: ["accepted", "rejected"] }
+      }
+      order_by: { created_at: desc }
+    ) {
+      id
+      source_company_id
+      destination_company_id
+      status
+      notes
+      created_at
+      source_company { company_name }
+      destination_company { company_name }
+      created_by_user { display_name }
+      inventory_transfer_items { article_code quantity }
+    }
+  }
+`;
+
+const GET_TRANSFERS_QUERY = `
+  query GetTransfers($companyId: uuid!) {
+    inventory_transfers(
+      where: {
+        _or: [
+          { source_company_id: { _eq: $companyId } }
+          { destination_company_id: { _eq: $companyId } }
+        ]
+      }
+      order_by: { created_at: desc }
+    ) {
+      id
+      source_company_id
+      destination_company_id
+      status
+      notes
+      created_at
+      responded_by
+      source_company { company_name }
+      destination_company { company_name }
+      created_by_user { display_name }
+      inventory_transfer_items { article_code quantity }
+    }
+  }
+`;
+
+const CREATE_TRANSFER_MUTATION = `
+  mutation CreateTransfer($transfer: inventory_transfers_insert_input!) {
+    insert_inventory_transfers_one(object: $transfer) {
+      id
+      status
+    }
+  }
+`;
+
+const ADD_TRANSFER_ITEMS_MUTATION = `
+  mutation AddTransferItems($items: [inventory_transfer_items_insert_input!]!) {
+    insert_inventory_transfer_items(objects: $items) {
+      affected_rows
+    }
+  }
+`;
+
+const UPDATE_TRANSFER_MUTATION = `
+  mutation UpdateTransfer($id: uuid!, $status: String!, $respondedBy: uuid!) {
+    update_inventory_transfers_by_pk(
+      pk_columns: { id: $id }
+      _set: { status: $status, responded_by: $respondedBy }
+    ) {
+      id
+      status
+    }
+  }
+`;
+
+function mapProductInventoryRow(row: any): Product {
+  const reserved = row.pending_transfer_items_aggregate?.aggregate?.sum?.quantity ?? 0;
+  const product = row.product ?? {};
+  const name = product.name ?? '';
+  const size = row.size ? ` (${row.size})` : '';
+  return {
+    id: row.article_code,
+    company_id: undefined,
+    name: `${name}${size}`.trim() || row.article_code,
+    scan_code: row.article_code,
+    price: row.selling_price ?? 0,
+    currency: '₹',
+    quantity: row.stock ?? 0,
+    size: row.size ?? undefined,
+    discount_percentage: row.discount_percentage ?? 0,
+    tax_percentage: row.tax_percentage ?? 0,
+    reserved,
+    product: {
+      id: product.id,
+      name: product.name ?? '',
+      description: product.description ?? undefined,
+      color: product.color ?? '',
+      uniform_type: product.uniform_type ?? '',
+      year: product.year ?? null,
+    },
+  };
+}
+
+function mapTransferRow(row: any): import('@/types/transfer').InventoryTransfer {
+  return {
+    id: row.id,
+    source_company_id: row.source_company_id,
+    source_company_name: row.source_company?.company_name ?? '',
+    destination_company_id: row.destination_company_id,
+    destination_company_name: row.destination_company?.company_name ?? '',
+    status: row.status,
+    created_by_user_id: undefined,
+    created_by_user: row.created_by_user ? { display_name: row.created_by_user.display_name } : undefined,
+    responded_by_user_id: row.responded_by ?? undefined,
+    notes: row.notes ?? undefined,
+    items: (row.inventory_transfer_items ?? []).map((i: any) => ({
+      article_code: i.article_code,
+      quantity: i.quantity,
+    })),
+    created_at: row.created_at,
+    updated_at: row.created_at,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Data adapter
@@ -279,141 +500,179 @@ const CREATE_SALE_MUTATION = `
 
 const data: DataProvider = {
   async fetchCompanies(userId) {
-    const res = await nhost.graphql.request({ 
-      query: COMPANIES_QUERY, 
-      variables: { userId } 
-    });
-    const d = (res.body as any).data;
-  
-    return (d?.user_company_roles ?? []).map((row: any) => ({
-      id: row.company.id,
-      name: row.company.name,
-      slug: row.company.slug || undefined,
-      meta: {
-        address: row.company.address || undefined,
-        logo_url: undefined,
-      },
-      created_at: row.company.created_at,
-      updated_at: row.company.updated_at,
-      role: row.access_role.role_name,
-      visible_tiles: row.access_role.visible_tiles ||
-        ['inventory', 'sale_history', 'new_sale'],
-    }));
+    const d = await gqlRequest<any>({ query: COMPANIES_QUERY, variables: { userId } });
+    const roleRows = d?.user_company_roles ?? [];
+    const useAllCompanies =
+      roleRows.some(
+        (r: any) =>
+          r.access_role?.role_type === 'super_admin' || r.access_role?.role_type === 'sub_admin',
+      );
+    const companies = useAllCompanies ? d?.all_companies ?? [] : d?.assigned_companies ?? [];
+    const mapCompany = (row: any, roleType?: string, visibleTiles?: string[]) => {
+      const company = row.company ?? row;
+      const role = roleType ?? row.access_role?.role_type;
+      const tiles = visibleTiles ?? row.access_role?.visible_tiles ?? ['inventory', 'sale_history', 'new_sale'];
+      return {
+        id: company.id,
+        name: company.name,
+        slug: company.slug ?? undefined,
+        address: company.address ?? undefined,
+        created_at: company.created_at,
+        updated_at: company.updated_at,
+        role,
+        visible_tiles: tiles,
+      };
+    };
+    if (useAllCompanies) {
+      return companies.map((c: any) => mapCompany(c, 'super_admin', ['inventory', 'sale_history', 'new_sale', 'inventory_transfer', 'add_products']));
+    }
+    return companies.map((row: any) => mapCompany(row, row.access_role?.role_type, row.access_role?.visible_tiles));
   },
 
   async fetchProducts(companyId, { search, page = 1, limit = 40 }) {
-    const offset = (page - 1) * limit;
-    const searchPattern = search ? `%${search}%` : '%';
-
-    const res = await nhost.graphql.request({
-      query: PRODUCTS_QUERY,
-      variables: { companyId, searchPattern, offset, limit },
-    });
-    const d = (res.body as any).data;
-
-    const productRows = d?.products ?? [];
-    const total = d?.products_aggregate?.aggregate?.count ?? 0;
-
-    const products: Product[] = [];
-    for (const p of productRows) {
-      const sizes = p.product_sizes ?? [];
-      for (const sz of sizes) {
-        products.push({
-          id: `${p.id}-${sz.id}`,
-          company_id: p.company_id,
-          name: `${p.name} (${sz.size})`,
-          sku: p.sku,
-          scan_code: sz.barcode ?? null,
-          price: p.selling_price ?? 0,
-          currency: '₹',
-          quantity: sz.stock ?? 0,
-          created_at: undefined,
-        });
-      }
+    const d = await gqlRequest<any>({ query: PRODUCTS_QUERY, variables: { companyId } });
+    const rows = d?.product_inventory ?? [];
+    let products: Product[] = rows.map(mapProductInventoryRow);
+    if (search && search.trim()) {
+      const q = search.trim().toLowerCase();
+      products = products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.scan_code.toLowerCase().includes(q),
+      );
     }
-
+    const total = products.length;
+    const offset = (page - 1) * limit;
+    const paged = products.slice(offset, offset + limit);
     return {
-      products,
+      products: paged,
       total,
       has_more: offset + limit < total,
     };
   },
 
   async fetchProductByBarcode(companyId, barcode) {
-    const res = await nhost.graphql.request({
+    const d = await gqlRequest<any>({
       query: PRODUCT_BY_BARCODE_QUERY,
-      variables: { companyId, barcode },
+      variables: { companyId, barcode: barcode.trim() },
     });
-    const d = (res.body as any).data;
-    const rows = d?.product_sizes ?? [];
+    const rows = d?.product_inventory ?? [];
     const first = rows[0];
-    if (!first?.product) return null;
-
-    const p = first.product;
-    return {
-      id: p.id,
-      company_id: p.company_id,
-      name: p.name,
-      sku: p.sku,
-      scan_code: first.barcode ?? null,
-      price: p.selling_price ?? 0,
-      currency: '₹',
-      quantity: first.stock ?? 0,
-      size_id: first.id,
-      size: first.size,
-    } as Product;
+    if (!first) return null;
+    return mapProductInventoryRow(first);
   },
 
   async fetchOrders(companyId, _opts) {
-    const res = await nhost.graphql.request({
-      query: SALES_QUERY,
-      variables: { companyId },
-    });
-    const d = (res.body as any).data;
-    const sales = d?.sales ?? [];
-    return sales.map((s: any) => ({
-      id: s.id,
-      company_id: s.company_id ?? companyId,
-      total_amount: s.total ?? 0,
+    const d = await gqlRequest<any>({ query: ORDERS_QUERY, variables: { companyId } });
+    const rows = d?.order_history ?? [];
+    return rows.map((o: any) => ({
+      order_id: o.order_id,
+      company_id: o.company_id ?? companyId,
+      transaction_type: o.transaction_type ?? 'sale',
+      subtotal: o.subtotal ?? o.total ?? 0,
+      total: o.total ?? 0,
       currency: '₹',
-      status: 'success' as const,
-      payment_method: s.payment_method ?? 'cash',
-      created_at: s.created_at ?? new Date().toISOString(),
+      payment_method: o.payment_method ?? 'cash',
+      status: o.status ?? 'success',
+      created_at: o.created_at ?? new Date().toISOString(),
+      items: (o.order_items ?? []).map((i: any) => ({
+        product_id: '',
+        product_name: i.product_name ?? '',
+        quantity: i.quantity ?? 0,
+        unit_price: i.unit_price ?? 0,
+        total: i.total ?? 0,
+      })),
     }));
   },
 
-  async createSale(input: CreateSaleInput): Promise<CreateSaleResult | null> {
-    const object = {
-      company_id: input.company_id,
-      subtotal: input.subtotal,
-      tax_amount: input.tax_amount,
-      total: input.total,
-      payment_method: input.payment_method,
-      sale_items: {
-        data: input.sale_items.map((item) => ({
-          product_id: item.product_id,
-          size_id: item.size_id,
-          product_name: item.product_name,
-          size: item.size,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          tax_percentage: item.tax_percentage ?? 0,
-          tax_amount: item.tax_amount ?? 0,
-          total: item.total,
-        })),
+  async createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null> {
+    const orderData = await gqlRequest<any>({
+      query: INSERT_ORDER_HISTORY_MUTATION,
+      variables: {
+        order: {
+          company_id: input.company_id,
+          user_id: input.user_id,
+          transaction_type: input.transaction_type,
+          subtotal: input.subtotal,
+          total: input.total,
+          payment_method: input.payment_method,
+          status: 'success',
+        },
       },
-    };
-    const res = await nhost.graphql.request({
-      query: CREATE_SALE_MUTATION,
-      variables: { object },
     });
-    const body = res.body as any;
-    const err = body.errors?.[0];
-    if (err) {
-      throw new Error(err.message ?? 'Create sale failed');
-    }
-    const sale = body.data?.insert_sales_one ?? null;
-    return sale;
+    const orderRow = orderData?.insert_order_history_one;
+    if (!orderRow?.order_id) return null;
+    const items = input.order_items.map((item) => ({
+      order_id: orderRow.order_id,
+      product_id: item.product_id,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      tax_percentage: item.tax_percentage ?? 0,
+      tax_amount: item.tax_amount ?? 0,
+      total: item.total,
+    }));
+    await gqlRequest<any>({ query: INSERT_ORDER_ITEMS_MUTATION, variables: { items } });
+    return { order_id: orderRow.order_id, total: orderRow.total ?? input.total };
+  },
+
+  async fetchPendingTransfers(companyId) {
+    const d = await gqlRequest<any>({ query: PENDING_TRANSFERS_QUERY, variables: { companyId } });
+    const rows = d?.inventory_transfers ?? [];
+    return rows.map(mapTransferRow);
+  },
+
+  async fetchTransferHistory(companyId) {
+    const d = await gqlRequest<any>({ query: TRANSFER_HISTORY_QUERY, variables: { companyId } });
+    const rows = d?.inventory_transfers ?? [];
+    return rows.map(mapTransferRow);
+  },
+
+  async createTransfer(input: CreateTransferInput): Promise<CreateTransferResult | null> {
+    const transferData = await gqlRequest<any>({
+      query: CREATE_TRANSFER_MUTATION,
+      variables: {
+        transfer: {
+          source_company_id: input.source_company_id,
+          destination_company_id: input.destination_company_id,
+          status: 'pending',
+          notes: input.notes ?? null,
+        },
+      },
+    });
+    const transferRow = transferData?.insert_inventory_transfers_one;
+    if (!transferRow?.id) return null;
+    const items = input.items.map((item) => ({
+      transfer_id: transferRow.id,
+      article_code: item.article_code,
+      quantity: item.quantity,
+    }));
+    await gqlRequest<any>({ query: ADD_TRANSFER_ITEMS_MUTATION, variables: { items } });
+    return { id: transferRow.id, status: transferRow.status ?? 'pending' };
+  },
+
+  async acceptTransfer(transferId: string) {
+    const user = await auth.getUser();
+    const userId = user?.id ?? '';
+    const d = await gqlRequest<any>({
+      query: UPDATE_TRANSFER_MUTATION,
+      variables: { id: transferId, status: 'accepted', respondedBy: userId },
+    });
+    return d?.update_inventory_transfers_by_pk
+      ? ({} as import('@/types/transfer').InventoryTransfer)
+      : null;
+  },
+
+  async rejectTransfer(transferId: string) {
+    const user = await auth.getUser();
+    const userId = user?.id ?? '';
+    const d = await gqlRequest<any>({
+      query: UPDATE_TRANSFER_MUTATION,
+      variables: { id: transferId, status: 'rejected', respondedBy: userId },
+    });
+    return d?.update_inventory_transfers_by_pk
+      ? ({} as import('@/types/transfer').InventoryTransfer)
+      : null;
   },
 };
 

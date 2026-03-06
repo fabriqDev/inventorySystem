@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { CartItem } from '@/types/cart';
+import type { CartItem, CartLineType } from '@/types/cart';
 import type { Product } from '@/types/product';
 import { CURRENCY_DEFAULT } from '@/constants/currency';
 
 type CartContextType = {
   items: CartItem[];
-  addItem: (product: Product, options?: { isReturn?: boolean }) => void;
-  removeItem: (productId: string, isReturn?: boolean) => void;
-  updateQuantity: (productId: string, quantity: number, isReturn?: boolean) => void;
+  addItem: (product: Product, options?: { lineType?: CartLineType }) => void;
+  removeItem: (productId: string, lineType?: CartLineType) => void;
+  updateQuantity: (productId: string, quantity: number, lineType?: CartLineType) => void;
   clearCart: () => void;
   total: number;
   currency: string;
@@ -16,18 +16,20 @@ type CartContextType = {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
+const DEFAULT_LINE_TYPE: CartLineType = 'sale';
+
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
 
-  const addItem = useCallback((product: Product, options?: { isReturn?: boolean }) => {
-    const isReturn = options?.isReturn ?? false;
+  const addItem = useCallback((product: Product, options?: { lineType?: CartLineType }) => {
+    const lineType = options?.lineType ?? DEFAULT_LINE_TYPE;
     setItems((prev) => {
       const existing = prev.find(
-        (i) => i.product_id === product.id && (i.isReturn ?? false) === isReturn,
+        (i) => i.product_id === product.id && i.lineType === lineType,
       );
       if (existing) {
         return prev.map((i) =>
-          i.product_id === product.id && (i.isReturn ?? false) === isReturn
+          i.product_id === product.id && i.lineType === lineType
             ? { ...i, quantity: i.quantity + 1 }
             : i,
         );
@@ -46,30 +48,30 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           quantity: 1,
           unit_price: product.price,
           currency: product.currency,
-          isReturn,
+          lineType,
         },
       ];
     });
   }, []);
 
-  const removeItem = useCallback((productId: string, isReturn?: boolean) => {
-    const flag = isReturn ?? false;
+  const removeItem = useCallback((productId: string, lineType?: CartLineType) => {
+    const type = lineType ?? DEFAULT_LINE_TYPE;
     setItems((prev) =>
-      prev.filter((i) => !(i.product_id === productId && (i.isReturn ?? false) === flag)),
+      prev.filter((i) => !(i.product_id === productId && i.lineType === type)),
     );
   }, []);
 
-  const updateQuantity = useCallback((productId: string, quantity: number, isReturn?: boolean) => {
-    const flag = isReturn ?? false;
+  const updateQuantity = useCallback((productId: string, quantity: number, lineType?: CartLineType) => {
+    const type = lineType ?? DEFAULT_LINE_TYPE;
     if (quantity <= 0) {
       setItems((prev) =>
-        prev.filter((i) => !(i.product_id === productId && (i.isReturn ?? false) === flag)),
+        prev.filter((i) => !(i.product_id === productId && i.lineType === type)),
       );
       return;
     }
     setItems((prev) =>
       prev.map((i) =>
-        i.product_id === productId && (i.isReturn ?? false) === flag ? { ...i, quantity } : i,
+        i.product_id === productId && i.lineType === type ? { ...i, quantity } : i,
       ),
     );
   }, []);
@@ -79,7 +81,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const total = useMemo(
     () =>
       items.reduce(
-        (sum, i) => sum + i.unit_price * i.quantity * ((i.isReturn ?? false) ? -1 : 1),
+        (sum, i) => sum + i.unit_price * i.quantity * (i.lineType === 'return' ? -1 : 1),
         0,
       ),
     [items],

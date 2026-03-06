@@ -50,9 +50,9 @@ function CompanyCard({
         <ThemedText type="defaultSemiBold" numberOfLines={1}>
           {company.name}
         </ThemedText>
-        {company.meta.address && (
+        {(company.address ?? company.meta?.address) && (
           <ThemedText style={[styles.addressText, { color: colors.icon }]} numberOfLines={1}>
-            {company.meta.address}
+            {company.address ?? company.meta?.address}
           </ThemedText>
         )}
         <View style={[styles.roleBadge, { backgroundColor: colors.tint + '15' }]}>

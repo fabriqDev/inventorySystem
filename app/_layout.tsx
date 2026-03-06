@@ -12,6 +12,7 @@ import { DataSourceProvider } from '@/contexts/data-source-context';
 import { CompanyProvider } from '@/contexts/company-context';
 import { ProductCacheProvider } from '@/contexts/product-cache-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ToastHost } from '@/components/toast-host';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +33,7 @@ function RootLayoutNav() {
   return (
     <SafeAreaProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <ToastHost />
         <Stack>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Protected guard={!!session}>

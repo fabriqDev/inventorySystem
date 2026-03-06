@@ -1,6 +1,7 @@
 import { backend } from '@/lib/backend';
-import { getMockOrders } from '@/lib/mock-data';
-import type { Order, OrderStatus } from '@/types/order';
+import type { CreateOrderInput, CreateOrderResult } from '@/lib/backend/types';
+import { createMockOrder, getMockOrders } from '@/lib/mock-data';
+import type { OrderStatus, OrderWithItems } from '@/types/order';
 
 interface FetchOrdersOptions {
   status?: OrderStatus | 'all';
@@ -10,15 +11,23 @@ export async function fetchOrders(
   companyId: string,
   options: FetchOrdersOptions,
   useMock: boolean,
-): Promise<Order[]> {
+): Promise<OrderWithItems[]> {
   if (useMock) return mockFetchOrders(companyId, options);
   return backend.data.fetchOrders(companyId, options);
+}
+
+export async function createOrder(
+  input: CreateOrderInput,
+  useMock: boolean,
+): Promise<CreateOrderResult | null> {
+  if (useMock) return createMockOrder(input);
+  return backend.data.createOrder(input);
 }
 
 async function mockFetchOrders(
   companyId: string,
   { status }: FetchOrdersOptions,
-): Promise<Order[]> {
+): Promise<OrderWithItems[]> {
   let orders = await getMockOrders(companyId);
 
   if (status && status !== 'all') {

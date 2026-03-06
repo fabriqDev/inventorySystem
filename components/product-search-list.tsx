@@ -117,8 +117,8 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity }: 
           <ThemedText type="defaultSemiBold" numberOfLines={1}>
             {item.name}
           </ThemedText>
-          <ThemedText style={[styles.sku, { color: colors.icon }]}>
-            SKU: {item.sku}
+          <ThemedText style={[styles.codeText, { color: colors.icon }]}>
+            Code: {item.scan_code}
           </ThemedText>
         </View>
         <View style={styles.cardRight}>
@@ -144,7 +144,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity }: 
         <IconSymbol name="magnifyingglass" size={20} color={colors.icon} />
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Search by name, SKU, or barcode…"
+          placeholder="Search product"
           placeholderTextColor={colors.icon}
           value={search}
           onChangeText={setSearch}
@@ -159,7 +159,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity }: 
         )}
       </View>
 
-      {cacheLoading && !isCached(companyId) ? (
+      {cacheLoading(companyId) && !isCached(companyId) ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.tint} />
         </View>
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
   },
   cardPressed: { opacity: 0.7 },
   cardBody: { flex: 1, gap: 2 },
-  sku: { fontSize: 12 },
+  codeText: { fontSize: 12 },
   cardRight: { alignItems: 'flex-end', gap: 4, marginLeft: 12 },
   priceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   priceText: { fontSize: 13, fontWeight: '600' },

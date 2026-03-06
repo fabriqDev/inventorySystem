@@ -37,12 +37,24 @@ const TILE_CONFIG: Record<TileId, { label: string; icon: IconName; description: 
     icon: 'cart.fill',
     description: 'Start a new order',
   },
+  inventory_transfer: {
+    label: 'Transfer',
+    icon: 'shippingbox.fill',
+    description: 'Transfer stock between companies',
+  },
+  add_products: {
+    label: 'Add Products',
+    icon: 'plus.circle.fill',
+    description: 'Add products to catalog',
+  },
 };
 
 const TILE_ROUTES: Record<TileId, string> = {
   inventory: 'inventory',
   sale_history: 'orders',
   new_sale: 'create-order',
+  inventory_transfer: 'inventory-transfer',
+  add_products: 'add-products',
 };
 
 const HEADER_GAP = 24;

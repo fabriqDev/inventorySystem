@@ -79,7 +79,7 @@ The app expects these tables:
 |-------|-------------|
 | `companies` | id, name, slug, rzpay_key_id, meta, created_at, updated_at |
 | `user_companies` | user_id, company_id, role, meta |
-| `products` | id, company_id, name, sku, barcode, price, currency, quantity, image_url |
+| `products` | id, company_id, name, scan_code, price, currency, quantity, image_url |
 | `orders` | id, company_id, total_amount, currency, status, payment_method, razorpay_order_id, razorpay_payment_id |
 | `order_items` | id, order_id, product_id, quantity, unit_price, currency |
 

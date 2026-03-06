@@ -42,6 +42,12 @@ const MAPPING = {
   'arrow.clockwise': 'refresh',
   'plus.circle.fill': 'add-circle',
   'arrow.uturn.backward.circle': 'undo',
+  'shippingbox.fill': 'local-shipping',
+  'shippingbox': 'inventory-2',
+  'arrow.right': 'arrow-forward',
+  'chevron.down': 'keyboard-arrow-down',
+  'banknote': 'payments',
+  'creditcard': 'credit-card',
 } as IconMapping;
 
 /**

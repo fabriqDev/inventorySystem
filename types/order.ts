@@ -1,25 +1,29 @@
 export type OrderStatus = 'success' | 'failed' | 'pending';
 export type PaymentMethod = 'cash' | 'online';
+export type TransactionType = 'sale' | 'refund';
 
 export interface Order {
-  id: string;
+  order_id: string;
   company_id: string;
-  total_amount: number;
+  user_id?: string;
+  transaction_type: TransactionType;
+  original_order_id?: string | null;
+  subtotal: number;
+  total: number;
   currency: string;
-  status: OrderStatus;
   payment_method: PaymentMethod;
-  razorpay_order_id?: string | null;
-  razorpay_payment_id?: string | null;
+  status: OrderStatus;
   created_at: string;
 }
 
 export interface OrderItem {
-  id: string;
-  order_id: string;
   product_id: string;
+  product_name: string;
   quantity: number;
   unit_price: number;
-  currency: string;
+  tax_percentage?: number;
+  tax_amount?: number;
+  total: number;
 }
 
 export interface OrderWithItems extends Order {

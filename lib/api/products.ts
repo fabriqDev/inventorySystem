@@ -27,7 +27,7 @@ export async function fetchProductByBarcode(
   if (useMock) {
     const products = await getMockProducts(companyId);
     const trimmed = barcode.trim();
-    return products.find((p) => (p.scan_code ?? '').trim() === trimmed) ?? null;
+    return products.find((p) => p.scan_code.trim() === trimmed) ?? null;
   }
   return backend.data.fetchProductByBarcode(companyId, barcode);
 }
@@ -43,8 +43,7 @@ async function mockFetchProducts(
     products = products.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
-        p.sku.toLowerCase().includes(q) ||
-        (p.scan_code ?? '').toLowerCase().includes(q),
+        p.scan_code.toLowerCase().includes(q),
     );
   }
 

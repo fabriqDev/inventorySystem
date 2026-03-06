@@ -17,7 +17,7 @@ import { useDataSource } from '@/contexts/data-source-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { fetchOrders } from '@/lib/api/orders';
 import { formatDate, formatPrice, truncateId } from '@/lib/format';
-import type { Order, OrderStatus } from '@/types/order';
+import type { OrderStatus, OrderWithItems } from '@/types/order';
 
 type FilterValue = OrderStatus | 'all';
 
@@ -45,7 +45,7 @@ export default function OrdersScreen() {
   const { useMockData } = useDataSource();
 
   const [filter, setFilter] = useState<FilterValue>('all');
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<OrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
 
@@ -62,14 +62,16 @@ export default function OrdersScreen() {
   }, [id, filter, useMockData]);
 
   const totalSales = useMemo(() => {
-    const successful = orders.filter((o) => o.status === 'success');
-    return successful.reduce((sum, o) => sum + o.total_amount, 0);
+    const successful = orders.filter(
+      (o) => o.status === 'success' && o.transaction_type === 'sale',
+    );
+    return successful.reduce((sum, o) => sum + o.total, 0);
   }, [orders]);
 
   const currency = orders[0]?.currency ?? '₹';
 
   const renderOrder = useCallback(
-    ({ item }: { item: Order }) => {
+    ({ item }: { item: OrderWithItems }) => {
       const s = STATUS_STYLE[item.status];
       return (
         <View
@@ -77,7 +79,7 @@ export default function OrdersScreen() {
         >
           <View style={styles.cardTop}>
             <ThemedText style={[styles.orderId, { color: colors.icon }]}>
-              #{truncateId(item.id)}
+              #{truncateId(item.order_id)}
             </ThemedText>
             <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
               <IconSymbol name={s.icon} size={14} color={s.fg} />
@@ -89,9 +91,10 @@ export default function OrdersScreen() {
           <View style={styles.cardBottom}>
             <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
               {formatDate(item.created_at)} · {item.payment_method}
+              {item.transaction_type === 'refund' ? ' · Refund' : ''}
             </ThemedText>
             <ThemedText type="defaultSemiBold">
-              {formatPrice(item.total_amount, item.currency)}
+              {formatPrice(item.transaction_type === 'refund' ? -item.total : item.total, item.currency)}
             </ThemedText>
           </View>
         </View>
@@ -102,11 +105,11 @@ export default function OrdersScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <Stack.Screen options={{ title: 'Sales' }} />
+      <Stack.Screen options={{ title: 'Orders' }} />
 
       {/* Total sales header */}
       <View style={[styles.totalCard, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}>
-        <ThemedText style={[styles.totalLabel, { color: colors.tint }]}>Total Sales</ThemedText>
+        <ThemedText style={[styles.totalLabel, { color: colors.tint }]}>Total Orders</ThemedText>
         <ThemedText type="title" style={[styles.totalValue, { color: colors.tint }]}>
           {formatPrice(totalSales, currency)}
         </ThemedText>
@@ -148,7 +151,7 @@ export default function OrdersScreen() {
       ) : (
         <FlatList
           data={orders}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.order_id}
           renderItem={renderOrder}
           contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}

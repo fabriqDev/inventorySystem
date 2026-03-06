@@ -1,6 +1,7 @@
 import type { CompanyWithRole } from '@/types/company';
 import type { Product, ProductListResponse } from '@/types/product';
-import type { Order, OrderStatus } from '@/types/order';
+import type { Order, OrderStatus, OrderWithItems } from '@/types/order';
+import type { InventoryTransfer } from '@/types/transfer';
 
 export interface AppSession {
   accessToken: string;
@@ -30,39 +31,67 @@ export interface FetchOrdersOptions {
   status?: OrderStatus | 'all';
 }
 
-export interface CreateSaleItemInput {
+/** product_id = article_code; no size_id. line_type: sale = deduct stock, return = add stock */
+export type OrderLineType = 'sale' | 'return';
+
+export interface CreateOrderItemInput {
   product_id: string;
-  size_id: string;
   product_name: string;
-  size: string;
   quantity: number;
   unit_price: number;
+  line_type: OrderLineType;
   tax_percentage?: number;
   tax_amount?: number;
   total: number;
 }
 
-export interface CreateSaleInput {
+export type OrderTransactionType = 'sale' | 'refund';
+
+export interface CreateOrderInput {
   company_id: string;
+  user_id: string;
+  transaction_type: OrderTransactionType;
   subtotal: number;
   tax_amount: number;
   total: number;
   payment_method: string;
-  sale_items: CreateSaleItemInput[];
+  order_items: CreateOrderItemInput[];
 }
 
-export interface CreateSaleResult {
-  id: string;
-  sale_number: string;
+export interface CreateOrderResult {
+  order_id: string;
   total: number;
 }
+
+export interface CreateTransferItemInput {
+  article_code: string;
+  quantity: number;
+}
+
+export interface CreateTransferInput {
+  source_company_id: string;
+  destination_company_id: string;
+  items: CreateTransferItemInput[];
+  notes?: string;
+}
+
+export interface CreateTransferResult {
+  id: string;
+  status: string;
+}
+
 
 export interface DataProvider {
   fetchCompanies(userId: string): Promise<CompanyWithRole[]>;
   fetchProducts(companyId: string, opts: FetchProductsOptions): Promise<ProductListResponse>;
   fetchProductByBarcode(companyId: string, barcode: string): Promise<Product | null>;
-  fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<Order[]>;
-  createSale(input: CreateSaleInput): Promise<CreateSaleResult | null>;
+  fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<OrderWithItems[]>;
+  createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null>;
+  fetchPendingTransfers(companyId: string): Promise<InventoryTransfer[]>;
+  fetchTransferHistory(companyId: string): Promise<InventoryTransfer[]>;
+  createTransfer(input: CreateTransferInput): Promise<CreateTransferResult | null>;
+  acceptTransfer(transferId: string): Promise<InventoryTransfer | null>;
+  rejectTransfer(transferId: string): Promise<InventoryTransfer | null>;
 }
 
 export interface BackendProvider {

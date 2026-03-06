@@ -1,14 +1,14 @@
 import type { TileId } from './tiles';
 
-export type Role = 'super_admin' | 'admin' | 'employee';
+export type Role = 'super_admin' | 'sub_admin' | 'company_admin' | 'employee';
 
 export interface Company {
   id: string;
   name: string;
   slug?: string;
-  /** Razorpay key for this company; optional. */
-  rzpay_key_id?: string;
-  meta: {
+  /** Top-level address from backend (company_name, company_code, address) */
+  address?: string;
+  meta?: {
     address?: string;
     logo_url?: string;
   };

@@ -41,7 +41,7 @@ export default function CreateOrderScreen() {
 
   const renderCartItem = useCallback(
     ({ item }: { item: CartItem }) => {
-      const isReturn = item.isReturn ?? false;
+      const isReturn = item.lineType === 'return';
       const lineTotal = item.unit_price * item.quantity * (isReturn ? -1 : 1);
       return (
         <View style={[styles.cartCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
@@ -62,14 +62,14 @@ export default function CreateOrderScreen() {
           </View>
           <View style={styles.qtyRow}>
             <Pressable
-              onPress={() => updateQuantity(item.product_id, item.quantity - 1, isReturn)}
+              onPress={() => updateQuantity(item.product_id, item.quantity - 1, item.lineType)}
               style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
             >
               <IconSymbol name="minus" size={16} color={colors.text} />
             </Pressable>
             <ThemedText style={styles.qtyText}>{item.quantity}</ThemedText>
             <Pressable
-              onPress={() => updateQuantity(item.product_id, item.quantity + 1, isReturn)}
+              onPress={() => updateQuantity(item.product_id, item.quantity + 1, item.lineType)}
               style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
             >
               <IconSymbol name="plus" size={16} color={colors.text} />
@@ -78,7 +78,7 @@ export default function CreateOrderScreen() {
           <ThemedText type="defaultSemiBold" style={[styles.subtotal, isReturn && styles.subtotalReturn]}>
             {isReturn ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
           </ThemedText>
-          <Pressable onPress={() => removeItem(item.product_id, isReturn)} hitSlop={8}>
+          <Pressable onPress={() => removeItem(item.product_id, item.lineType)} hitSlop={8}>
             <IconSymbol name="trash" size={18} color="#C62828" />
           </Pressable>
         </View>
@@ -120,7 +120,7 @@ export default function CreateOrderScreen() {
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item) => `${item.product_id}-${item.isReturn ?? false}`}
+          keyExtractor={(item) => `${item.product_id}-${item.lineType}`}
           renderItem={renderCartItem}
           contentContainerStyle={[styles.cartList, { paddingBottom: 120 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
