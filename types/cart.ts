@@ -1,6 +1,6 @@
 import type { Product } from './product';
 
-export type CartLineType = 'sale' | 'return';
+export type CartTransactionType = 'sale' | 'refund';
 
 export interface CartItem {
   product_id: string;
@@ -8,5 +8,5 @@ export interface CartItem {
   quantity: number;
   unit_price: number;
   currency: string;
-  lineType: CartLineType;
+  transactionType: CartTransactionType;
 }

@@ -1,12 +1,12 @@
+import type { OrderItemTransactionType } from '@/lib/backend/types';
+
 export type OrderStatus = 'success' | 'failed' | 'pending';
 export type PaymentMethod = 'cash' | 'online';
-export type TransactionType = 'sale' | 'refund';
 
 export interface Order {
   order_id: string;
   company_id: string;
   user_id?: string;
-  transaction_type: TransactionType;
   original_order_id?: string | null;
   subtotal: number;
   total: number;
@@ -21,6 +21,8 @@ export interface OrderItem {
   product_name: string;
   quantity: number;
   unit_price: number;
+  /** sale = deduct stock, return = add stock; only at item level */
+  transaction_type?: OrderItemTransactionType;
   tax_percentage?: number;
   tax_amount?: number;
   total: number;

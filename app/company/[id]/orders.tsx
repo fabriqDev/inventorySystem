@@ -63,7 +63,7 @@ export default function OrdersScreen() {
 
   const totalSales = useMemo(() => {
     const successful = orders.filter(
-      (o) => o.status === 'success' && o.transaction_type === 'sale',
+      (o) => o.status === 'success' && o.total > 0,
     );
     return successful.reduce((sum, o) => sum + o.total, 0);
   }, [orders]);
@@ -91,10 +91,10 @@ export default function OrdersScreen() {
           <View style={styles.cardBottom}>
             <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
               {formatDate(item.created_at)} · {item.payment_method}
-              {item.transaction_type === 'refund' ? ' · Refund' : ''}
+              {item.total < 0 ? ' · Refund' : ''}
             </ThemedText>
             <ThemedText type="defaultSemiBold">
-              {formatPrice(item.transaction_type === 'refund' ? -item.total : item.total, item.currency)}
+              {formatPrice(item.total < 0 ? -item.total : item.total, item.currency)}
             </ThemedText>
           </View>
         </View>

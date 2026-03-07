@@ -166,7 +166,7 @@ const auth: AuthProvider = {
   },
 
   async signOut() {
-    await nhost.auth.signOut({});
+    await nhost.auth.signOut();
   },
 
   async getSession() {
@@ -198,9 +198,6 @@ const auth: AuthProvider = {
 
 const COMPANIES_QUERY = `
   query GetCompanies($userId: uuid!) {
-    user_company_roles(where: { user_id: { _eq: $userId } }) {
-      access_role { role_type }
-    }
     assigned_companies: user_company_roles(where: { user_id: { _eq: $userId } }) {
       company {
         id
@@ -214,14 +211,6 @@ const COMPANIES_QUERY = `
         role_type
         visible_tiles
       }
-    }
-    all_companies: companies {
-      id
-      name: company_name
-      slug: company_code
-      address
-      created_at
-      updated_at
     }
   }
 `;
@@ -310,7 +299,6 @@ const ORDERS_QUERY = `
       company_id
       total
       payment_method
-      transaction_type
       created_at
       status
       subtotal
@@ -319,24 +307,17 @@ const ORDERS_QUERY = `
         quantity
         unit_price
         total
+        transaction_type
       }
     }
   }
 `;
 
-const INSERT_ORDER_HISTORY_MUTATION = `
+const CREATE_ORDER_MUTATION = `
   mutation CreateOrder($order: order_history_insert_input!) {
     insert_order_history_one(object: $order) {
       order_id
       total
-    }
-  }
-`;
-
-const INSERT_ORDER_ITEMS_MUTATION = `
-  mutation CreateOrderItems($items: [order_items_insert_input!]!) {
-    insert_order_items(objects: $items) {
-      affected_rows
     }
   }
 `;
@@ -358,8 +339,8 @@ const PENDING_TRANSFERS_QUERY = `
       created_at
       source_company { company_name }
       destination_company { company_name }
-      created_by_user { display_name }
-      inventory_transfer_items { article_code quantity }
+      created_by_user { full_name }
+      items { article_code quantity }
     }
   }
 `;
@@ -384,8 +365,8 @@ const TRANSFER_HISTORY_QUERY = `
       created_at
       source_company { company_name }
       destination_company { company_name }
-      created_by_user { display_name }
-      inventory_transfer_items { article_code quantity }
+      created_by_user { full_name }
+      items { article_code quantity }
     }
   }
 `;
@@ -410,8 +391,8 @@ const GET_TRANSFERS_QUERY = `
       responded_by
       source_company { company_name }
       destination_company { company_name }
-      created_by_user { display_name }
-      inventory_transfer_items { article_code quantity }
+      created_by_user { full_name }
+      items { article_code quantity }
     }
   }
 `;
@@ -421,14 +402,6 @@ const CREATE_TRANSFER_MUTATION = `
     insert_inventory_transfers_one(object: $transfer) {
       id
       status
-    }
-  }
-`;
-
-const ADD_TRANSFER_ITEMS_MUTATION = `
-  mutation AddTransferItems($items: [inventory_transfer_items_insert_input!]!) {
-    insert_inventory_transfer_items(objects: $items) {
-      affected_rows
     }
   }
 `;
@@ -482,10 +455,10 @@ function mapTransferRow(row: any): import('@/types/transfer').InventoryTransfer 
     destination_company_name: row.destination_company?.company_name ?? '',
     status: row.status,
     created_by_user_id: undefined,
-    created_by_user: row.created_by_user ? { display_name: row.created_by_user.display_name } : undefined,
+    created_by_user: row.created_by_user ? { display_name: row.created_by_user.full_name ?? row.created_by_user.display_name } : undefined,
     responded_by_user_id: row.responded_by ?? undefined,
     notes: row.notes ?? undefined,
-    items: (row.inventory_transfer_items ?? []).map((i: any) => ({
+    items: (row.items ?? []).map((i: any) => ({
       article_code: i.article_code,
       quantity: i.quantity,
     })),
@@ -501,17 +474,11 @@ function mapTransferRow(row: any): import('@/types/transfer').InventoryTransfer 
 const data: DataProvider = {
   async fetchCompanies(userId) {
     const d = await gqlRequest<any>({ query: COMPANIES_QUERY, variables: { userId } });
-    const roleRows = d?.user_company_roles ?? [];
-    const useAllCompanies =
-      roleRows.some(
-        (r: any) =>
-          r.access_role?.role_type === 'super_admin' || r.access_role?.role_type === 'sub_admin',
-      );
-    const companies = useAllCompanies ? d?.all_companies ?? [] : d?.assigned_companies ?? [];
-    const mapCompany = (row: any, roleType?: string, visibleTiles?: string[]) => {
+    const companies = d?.assigned_companies ?? [];
+    const mapCompany = (row: any) => {
       const company = row.company ?? row;
-      const role = roleType ?? row.access_role?.role_type;
-      const tiles = visibleTiles ?? row.access_role?.visible_tiles ?? ['inventory', 'sale_history', 'new_sale'];
+      const role = row.access_role?.role_type;
+      const tiles = row.access_role?.visible_tiles ?? ['inventory', 'sale_history', 'new_sale'];
       return {
         id: company.id,
         name: company.name,
@@ -523,10 +490,7 @@ const data: DataProvider = {
         visible_tiles: tiles,
       };
     };
-    if (useAllCompanies) {
-      return companies.map((c: any) => mapCompany(c, 'super_admin', ['inventory', 'sale_history', 'new_sale', 'inventory_transfer', 'add_products']));
-    }
-    return companies.map((row: any) => mapCompany(row, row.access_role?.role_type, row.access_role?.visible_tiles));
+    return companies.map((row: any) => mapCompany(row));
   },
 
   async fetchProducts(companyId, { search, page = 1, limit = 40 }) {
@@ -568,7 +532,6 @@ const data: DataProvider = {
     return rows.map((o: any) => ({
       order_id: o.order_id,
       company_id: o.company_id ?? companyId,
-      transaction_type: o.transaction_type ?? 'sale',
       subtotal: o.subtotal ?? o.total ?? 0,
       total: o.total ?? 0,
       currency: '₹',
@@ -581,38 +544,38 @@ const data: DataProvider = {
         quantity: i.quantity ?? 0,
         unit_price: i.unit_price ?? 0,
         total: i.total ?? 0,
+        transaction_type: i.transaction_type ?? 'sale',
       })),
     }));
   },
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null> {
+    const orderItemsData = input.order_items.map((item) => ({
+      product_id: item.product_id,
+      product_name: item.product_name,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      transaction_type: item.transaction_type,
+      tax_percentage: item.tax_percentage ?? 0,
+      tax_amount: item.tax_amount ?? 0,
+      total: Math.abs(item.total),
+    }));
     const orderData = await gqlRequest<any>({
-      query: INSERT_ORDER_HISTORY_MUTATION,
+      query: CREATE_ORDER_MUTATION,
       variables: {
         order: {
           company_id: input.company_id,
           user_id: input.user_id,
-          transaction_type: input.transaction_type,
           subtotal: input.subtotal,
           total: input.total,
           payment_method: input.payment_method,
           status: 'success',
+          order_items: { data: orderItemsData },
         },
       },
     });
     const orderRow = orderData?.insert_order_history_one;
     if (!orderRow?.order_id) return null;
-    const items = input.order_items.map((item) => ({
-      order_id: orderRow.order_id,
-      product_id: item.product_id,
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      tax_percentage: item.tax_percentage ?? 0,
-      tax_amount: item.tax_amount ?? 0,
-      total: item.total,
-    }));
-    await gqlRequest<any>({ query: INSERT_ORDER_ITEMS_MUTATION, variables: { items } });
     return { order_id: orderRow.order_id, total: orderRow.total ?? input.total };
   },
 
@@ -635,6 +598,7 @@ const data: DataProvider = {
         transfer: {
           source_company_id: input.source_company_id,
           destination_company_id: input.destination_company_id,
+          created_by: input.created_by,
           status: 'pending',
           notes: input.notes ?? null,
         },
@@ -642,12 +606,6 @@ const data: DataProvider = {
     });
     const transferRow = transferData?.insert_inventory_transfers_one;
     if (!transferRow?.id) return null;
-    const items = input.items.map((item) => ({
-      transfer_id: transferRow.id,
-      article_code: item.article_code,
-      quantity: item.quantity,
-    }));
-    await gqlRequest<any>({ query: ADD_TRANSFER_ITEMS_MUTATION, variables: { items } });
     return { id: transferRow.id, status: transferRow.status ?? 'pending' };
   },
 

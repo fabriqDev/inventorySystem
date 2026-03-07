@@ -17,15 +17,16 @@ import { formatPrice } from '@/lib/format';
 import { toast } from '@/lib/toast';
 import type { CartItem } from '@/types/cart';
 
+/** Build order items with positive values for backend; transaction_type is sale | return (refund mapped to return). */
 function cartToOrderItems(items: CartItem[]): CreateOrderItemInput[] {
   return items.map((item) => {
-    const lineTotal = item.unit_price * item.quantity * (item.lineType === 'return' ? -1 : 1);
+    const lineTotal = item.unit_price * item.quantity;
     return {
       product_id: item.product_id,
       product_name: item.product.name,
       quantity: item.quantity,
       unit_price: item.unit_price,
-      line_type: item.lineType,
+      transaction_type: item.transactionType === 'refund' ? 'return' : 'sale',
       tax_percentage: 0,
       tax_amount: 0,
       total: lineTotal,
@@ -54,58 +55,23 @@ export default function CheckoutScreen() {
   }, [items.length, companyId, router]);
 
   const runCashOrder = useCallback(async () => {
-    if (!companyId || !userId || items.length === 0) {
+    if (!companyId || !userId || items.length === 0 || total <= 0) {
       if (!userId) toast.show({ type: 'error', message: 'Please sign in to place an order.' });
       return;
     }
-
     setSubmitting(true);
     try {
-      const saleItems = items.filter((i) => i.lineType === 'sale');
-      const returnItems = items.filter((i) => i.lineType === 'return');
-
-      const saleTotal = saleItems.reduce(
-        (sum, i) => sum + i.unit_price * i.quantity,
-        0,
-      );
-      const returnTotal = returnItems.reduce(
-        (sum, i) => sum + i.unit_price * i.quantity,
-        0,
-      );
-
-      const promises: Promise<{ order_id: string; total: number } | null>[] = [];
-
-      if (saleItems.length > 0) {
-        const saleInput: CreateOrderInput = {
-          company_id: companyId,
-          user_id: userId,
-          transaction_type: 'sale',
-          subtotal: saleTotal,
-          tax_amount: 0,
-          total: saleTotal,
-          payment_method: 'cash',
-          order_items: cartToOrderItems(saleItems),
-        };
-        promises.push(createOrder(saleInput, useMockData));
-      }
-
-      if (returnItems.length > 0) {
-        const refundInput: CreateOrderInput = {
-          company_id: companyId,
-          user_id: userId,
-          transaction_type: 'refund',
-          subtotal: -returnTotal,
-          tax_amount: 0,
-          total: -returnTotal,
-          payment_method: 'cash',
-          order_items: cartToOrderItems(returnItems),
-        };
-        promises.push(createOrder(refundInput, useMockData));
-      }
-
-      const results = await Promise.all(promises);
-      const failed = results.some((r) => r == null);
-      if (failed) {
+      const orderInput: CreateOrderInput = {
+        company_id: companyId,
+        user_id: userId,
+        subtotal: total,
+        tax_amount: 0,
+        total,
+        payment_method: 'cash',
+        order_items: cartToOrderItems(items),
+      };
+      const result = await createOrder(orderInput, useMockData);
+      if (result == null) {
         toast.show({ type: 'error', message: 'Order could not be completed. Please try again.' });
         return;
       }
@@ -115,7 +81,33 @@ export default function CheckoutScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [companyId, userId, items, useMockData, clearCart, router]);
+  }, [companyId, userId, items, total, useMockData, clearCart, router]);
+
+  const runCompleteOrder = useCallback(async () => {
+    if (!companyId || !userId || items.length === 0 || total > 0) return;
+    setSubmitting(true);
+    try {
+      const orderInput: CreateOrderInput = {
+        company_id: companyId,
+        user_id: userId,
+        subtotal: total,
+        tax_amount: 0,
+        total,
+        payment_method: 'complete',
+        order_items: cartToOrderItems(items),
+      };
+      const result = await createOrder(orderInput, useMockData);
+      if (result == null) {
+        toast.show({ type: 'error', message: 'Order could not be completed. Please try again.' });
+        return;
+      }
+      clearCart();
+      toast.show({ type: 'success', message: 'Order completed successfully.' });
+      router.back();
+    } finally {
+      setSubmitting(false);
+    }
+  }, [companyId, userId, items, total, useMockData, clearCart, router]);
 
   const handleOnline = useCallback(() => {
     toast.show({ type: 'info', message: 'Online payment (Razorpay) will be available soon.' });
@@ -138,37 +130,58 @@ export default function CheckoutScreen() {
         Checkout
       </ThemedText>
       <ThemedText style={[styles.subtitle, { color: colors.icon, marginBottom: 24 }]}>
-        Pay with
+        {total > 0 ? 'Pay with' : 'Complete order'}
       </ThemedText>
 
       <View style={styles.actions}>
-        <Pressable
-          onPress={runCashOrder}
-          disabled={submitting}
-          style={[
-            styles.optionBtn,
-            { backgroundColor: colors.tint, borderColor: colors.tint },
-          ]}
-        >
-          {submitting ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <IconSymbol name="banknote" size={24} color="#fff" />
-              <ThemedText style={styles.optionBtnTextPrimary}>Cash</ThemedText>
-            </>
-          )}
-        </Pressable>
-
-        <Pressable
-          onPress={handleOnline}
-          disabled={submitting}
-          style={[styles.optionBtn, { backgroundColor: colors.background, borderColor: colors.icon + '40' }]}
-        >
-          <IconSymbol name="creditcard" size={24} color={colors.text} />
-          <ThemedText style={[styles.optionBtnText, { color: colors.text }]}>Online</ThemedText>
-          <ThemedText style={[styles.optionHint, { color: colors.icon }]}>Razorpay coming soon</ThemedText>
-        </Pressable>
+        {total > 0 ? (
+          <>
+            <Pressable
+              onPress={runCashOrder}
+              disabled={submitting}
+              style={[
+                styles.optionBtn,
+                { backgroundColor: colors.tint, borderColor: colors.tint },
+              ]}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <IconSymbol name="banknote" size={24} color="#fff" />
+                  <ThemedText style={styles.optionBtnTextPrimary}>Cash</ThemedText>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              onPress={handleOnline}
+              disabled={submitting}
+              style={[styles.optionBtn, { backgroundColor: colors.background, borderColor: colors.icon + '40' }]}
+            >
+              <IconSymbol name="creditcard" size={24} color={colors.text} />
+              <ThemedText style={[styles.optionBtnText, { color: colors.text }]}>Online</ThemedText>
+              <ThemedText style={[styles.optionHint, { color: colors.icon }]}>Razorpay coming soon</ThemedText>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            onPress={runCompleteOrder}
+            disabled={submitting}
+            style={[
+              styles.optionBtn,
+              { backgroundColor: colors.tint, borderColor: colors.tint },
+            ]}
+          >
+            {submitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <IconSymbol name="checkmark.circle.fill" size={24} color="#fff" />
+                <ThemedText style={styles.optionBtnTextPrimary}>Complete order</ThemedText>
+              </>
+            )}
+          </Pressable>
+        )}
       </View>
 
       <View style={[styles.footer, { borderTopColor: colors.icon + '20' }]}>

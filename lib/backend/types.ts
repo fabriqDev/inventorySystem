@@ -31,28 +31,26 @@ export interface FetchOrdersOptions {
   status?: OrderStatus | 'all';
 }
 
-/** product_id = article_code; no size_id. line_type: sale = deduct stock, return = add stock */
-export type OrderLineType = 'sale' | 'return';
+/** product_id = article_code; no size_id. transaction_type: sale = deduct stock, return = add stock */
+export type OrderItemTransactionType = 'sale' | 'return';
 
 export interface CreateOrderItemInput {
   product_id: string;
   product_name: string;
   quantity: number;
   unit_price: number;
-  line_type: OrderLineType;
+  transaction_type: OrderItemTransactionType;
   tax_percentage?: number;
   tax_amount?: number;
   total: number;
 }
 
-export type OrderTransactionType = 'sale' | 'refund';
-
 export interface CreateOrderInput {
   company_id: string;
   user_id: string;
-  transaction_type: OrderTransactionType;
   subtotal: number;
   tax_amount: number;
+  /** Total calculated on client (can be negative); sent to server. */
   total: number;
   payment_method: string;
   order_items: CreateOrderItemInput[];
@@ -71,6 +69,7 @@ export interface CreateTransferItemInput {
 export interface CreateTransferInput {
   source_company_id: string;
   destination_company_id: string;
+  created_by: string;
   items: CreateTransferItemInput[];
   notes?: string;
 }

@@ -1,13 +1,13 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import type { CartItem, CartLineType } from '@/types/cart';
+import type { CartItem, CartTransactionType } from '@/types/cart';
 import type { Product } from '@/types/product';
 import { CURRENCY_DEFAULT } from '@/constants/currency';
 
 type CartContextType = {
   items: CartItem[];
-  addItem: (product: Product, options?: { lineType?: CartLineType }) => void;
-  removeItem: (productId: string, lineType?: CartLineType) => void;
-  updateQuantity: (productId: string, quantity: number, lineType?: CartLineType) => void;
+  addItem: (product: Product, options?: { transactionType?: CartTransactionType }) => void;
+  removeItem: (productId: string, transactionType?: CartTransactionType) => void;
+  updateQuantity: (productId: string, quantity: number, transactionType?: CartTransactionType) => void;
   clearCart: () => void;
   total: number;
   currency: string;
@@ -16,20 +16,20 @@ type CartContextType = {
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-const DEFAULT_LINE_TYPE: CartLineType = 'sale';
+const DEFAULT_TRANSACTION_TYPE: CartTransactionType = 'sale';
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
 
-  const addItem = useCallback((product: Product, options?: { lineType?: CartLineType }) => {
-    const lineType = options?.lineType ?? DEFAULT_LINE_TYPE;
+  const addItem = useCallback((product: Product, options?: { transactionType?: CartTransactionType }) => {
+    const transactionType = options?.transactionType ?? DEFAULT_TRANSACTION_TYPE;
     setItems((prev) => {
       const existing = prev.find(
-        (i) => i.product_id === product.id && i.lineType === lineType,
+        (i) => i.product_id === product.id && i.transactionType === transactionType,
       );
       if (existing) {
         return prev.map((i) =>
-          i.product_id === product.id && i.lineType === lineType
+          i.product_id === product.id && i.transactionType === transactionType
             ? { ...i, quantity: i.quantity + 1 }
             : i,
         );
@@ -48,30 +48,30 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           quantity: 1,
           unit_price: product.price,
           currency: product.currency,
-          lineType,
+          transactionType,
         },
       ];
     });
   }, []);
 
-  const removeItem = useCallback((productId: string, lineType?: CartLineType) => {
-    const type = lineType ?? DEFAULT_LINE_TYPE;
+  const removeItem = useCallback((productId: string, transactionType?: CartTransactionType) => {
+    const type = transactionType ?? DEFAULT_TRANSACTION_TYPE;
     setItems((prev) =>
-      prev.filter((i) => !(i.product_id === productId && i.lineType === type)),
+      prev.filter((i) => !(i.product_id === productId && i.transactionType === type)),
     );
   }, []);
 
-  const updateQuantity = useCallback((productId: string, quantity: number, lineType?: CartLineType) => {
-    const type = lineType ?? DEFAULT_LINE_TYPE;
+  const updateQuantity = useCallback((productId: string, quantity: number, transactionType?: CartTransactionType) => {
+    const type = transactionType ?? DEFAULT_TRANSACTION_TYPE;
     if (quantity <= 0) {
       setItems((prev) =>
-        prev.filter((i) => !(i.product_id === productId && i.lineType === type)),
+        prev.filter((i) => !(i.product_id === productId && i.transactionType === type)),
       );
       return;
     }
     setItems((prev) =>
       prev.map((i) =>
-        i.product_id === productId && i.lineType === type ? { ...i, quantity } : i,
+        i.product_id === productId && i.transactionType === type ? { ...i, quantity } : i,
       ),
     );
   }, []);
@@ -81,7 +81,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const total = useMemo(
     () =>
       items.reduce(
-        (sum, i) => sum + i.unit_price * i.quantity * (i.lineType === 'return' ? -1 : 1),
+        (sum, i) => sum + i.unit_price * i.quantity * (i.transactionType === 'refund' ? -1 : 1),
         0,
       ),
     [items],

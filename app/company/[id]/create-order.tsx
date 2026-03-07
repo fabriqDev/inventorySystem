@@ -11,7 +11,7 @@ import { Colors } from '@/constants/theme';
 import { useCart } from '@/contexts/cart-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { formatPrice } from '@/lib/format';
-import type { CartItem } from '@/types/cart';
+import type { CartItem, CartTransactionType } from '@/types/cart';
 
 export default function CreateOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -23,15 +23,15 @@ export default function CreateOrderScreen() {
   const { items, removeItem, updateQuantity, total, currency, itemCount } = useCart();
 
   const [addReturnVisible, setAddReturnVisible] = useState(false);
-  const [addReturnMode, setAddReturnMode] = useState<'add' | 'return'>('add');
+  const [addReturnMode, setAddReturnMode] = useState<CartTransactionType>('sale');
 
   const openAddItem = useCallback(() => {
-    setAddReturnMode('add');
+    setAddReturnMode('sale');
     setAddReturnVisible(true);
   }, []);
 
   const openReturnItem = useCallback(() => {
-    setAddReturnMode('return');
+    setAddReturnMode('refund');
     setAddReturnVisible(true);
   }, []);
 
@@ -41,8 +41,8 @@ export default function CreateOrderScreen() {
 
   const renderCartItem = useCallback(
     ({ item }: { item: CartItem }) => {
-      const isReturn = item.lineType === 'return';
-      const lineTotal = item.unit_price * item.quantity * (isReturn ? -1 : 1);
+      const isRefund = item.transactionType === 'refund';
+      const lineTotal = item.unit_price * item.quantity * (isRefund ? -1 : 1);
       return (
         <View style={[styles.cartCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
           <View style={styles.cartBody}>
@@ -50,9 +50,9 @@ export default function CreateOrderScreen() {
               <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.cartItemName}>
                 {item.product.name}
               </ThemedText>
-              {isReturn && (
+              {isRefund && (
                 <View style={[styles.returnBadge, { backgroundColor: '#FFEBEE' }]}>
-                  <ThemedText style={styles.returnBadgeText}>Return</ThemedText>
+                  <ThemedText style={styles.returnBadgeText}>Refund</ThemedText>
                 </View>
               )}
             </View>
@@ -62,23 +62,23 @@ export default function CreateOrderScreen() {
           </View>
           <View style={styles.qtyRow}>
             <Pressable
-              onPress={() => updateQuantity(item.product_id, item.quantity - 1, item.lineType)}
+              onPress={() => updateQuantity(item.product_id, item.quantity - 1, item.transactionType)}
               style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
             >
               <IconSymbol name="minus" size={16} color={colors.text} />
             </Pressable>
             <ThemedText style={styles.qtyText}>{item.quantity}</ThemedText>
             <Pressable
-              onPress={() => updateQuantity(item.product_id, item.quantity + 1, item.lineType)}
+              onPress={() => updateQuantity(item.product_id, item.quantity + 1, item.transactionType)}
               style={[styles.qtyBtn, { backgroundColor: colors.icon + '15' }]}
             >
               <IconSymbol name="plus" size={16} color={colors.text} />
             </Pressable>
           </View>
-          <ThemedText type="defaultSemiBold" style={[styles.subtotal, isReturn && styles.subtotalReturn]}>
-            {isReturn ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
+          <ThemedText type="defaultSemiBold" style={[styles.subtotal, isRefund && styles.subtotalReturn]}>
+            {isRefund ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
           </ThemedText>
-          <Pressable onPress={() => removeItem(item.product_id, item.lineType)} hitSlop={8}>
+          <Pressable onPress={() => removeItem(item.product_id, item.transactionType)} hitSlop={8}>
             <IconSymbol name="trash" size={18} color="#C62828" />
           </Pressable>
         </View>
@@ -120,7 +120,7 @@ export default function CreateOrderScreen() {
       ) : (
         <FlatList
           data={items}
-          keyExtractor={(item) => `${item.product_id}-${item.lineType}`}
+          keyExtractor={(item) => `${item.product_id}-${item.transactionType}`}
           renderItem={renderCartItem}
           contentContainerStyle={[styles.cartList, { paddingBottom: 120 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}

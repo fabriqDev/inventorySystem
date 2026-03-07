@@ -8,7 +8,7 @@ type DataSourceContextType = {
 const DataSourceContext = createContext<DataSourceContextType | undefined>(undefined);
 
 export function DataSourceProvider({ children }: { children: React.ReactNode }) {
-  const [useMockData, setUseMockData] = useState(true);
+  const [useMockData, setUseMockData] = useState(false);
 
   const toggleDataSource = useCallback(() => {
     setUseMockData((prev) => !prev);
