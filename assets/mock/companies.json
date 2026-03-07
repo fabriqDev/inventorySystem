@@ -1,0 +1,42 @@
+[
+  {
+    "id": "1",
+    "name": "Indrapuram School - Crossings Republik",
+    "slug": "indrapuram-branch-crossings-republik",
+    "address": "123 Education Lane, Mumbai",
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "role": "company_admin",
+    "visible_tiles": ["inventory", "sale_history", "new_sale", "inventory_transfer"]
+  },
+  {
+    "id": "2",
+    "name": "Indrapuram School - Ghaziabad",
+    "slug": "indrapuram-school-ghaziabad",
+    "address": "456 Knowledge Park, Delhi",
+    "created_at": "2024-02-15T00:00:00Z",
+    "updated_at": "2024-02-15T00:00:00Z",
+    "role": "employee",
+    "visible_tiles": ["inventory", "new_sale"]
+  },
+  {
+    "id": "3",
+    "name": "Bright Future Institutiton",
+    "slug": "bright-future",
+    "address": "789 Scholar St, Bangalore",
+    "created_at": "2024-03-10T00:00:00Z",
+    "updated_at": "2024-03-10T00:00:00Z",
+    "role": "super_admin",
+    "visible_tiles": ["inventory", "sale_history", "new_sale", "inventory_transfer", "add_products"]
+  },
+  {
+    "id": "4",
+    "name": "Little Stars Playschool",
+    "slug": "little-stars",
+    "address": "321 Rainbow Road, Pune",
+    "created_at": "2024-04-05T00:00:00Z",
+    "updated_at": "2024-04-05T00:00:00Z",
+    "role": "company_admin",
+    "visible_tiles": ["inventory", "sale_history"]
+  }
+]

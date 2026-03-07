@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "FabriqWorld",
+			"path": "../.."
+		},
+		{
+			"name": "plans",
+			"path": "../../../.cursor/plans"
+		}
+	],
+	"settings": {}
+}

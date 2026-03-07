@@ -1,0 +1,44 @@
+{
+  "1": [
+    { "id": "p1-01", "company_id": "1", "name": "Shirt White - 2025", "scan_code": "INR-RHT-533DDCE7", "price": 4500, "currency": "₹", "quantity": 150, "image_url": null, "created_at": "2024-06-01T00:00:00Z" },
+    { "id": "p1-02", "company_id": "1", "name": "T-shirt Sport - 2025", "scan_code": "INR-SPT-A1B2C3D4", "price": 12000, "currency": "₹", "quantity": 80, "image_url": null, "created_at": "2024-06-01T00:00:00Z" },
+    { "id": "p1-03", "company_id": "1", "name": "Skirt Standard - 2025", "scan_code": "INR-SKT-7E8F9G0H", "price": 25000, "currency": "₹", "quantity": 45, "image_url": null, "created_at": "2024-06-02T00:00:00Z" },
+    { "id": "p1-04", "company_id": "1", "name": "Navy Check Shorts - 2025", "scan_code": "INR-NCS-K2L3M4N5", "price": 150000, "currency": "₹", "quantity": 30, "image_url": null, "created_at": "2024-06-02T00:00:00Z" },
+    { "id": "p1-05", "company_id": "1", "name": "Navy Check Pants- 2025", "scan_code": "INR-NCP-P6Q7R8S9", "price": 35000, "currency": "₹", "quantity": 60, "image_url": null, "created_at": "2024-06-03T00:00:00Z" },
+    { "id": "p1-06", "company_id": "1", "name": "Grey-orange Summer Socks - 2025", "scan_code": "INR-GOS-T0U1V2W3", "price": 27500, "currency": "₹", "quantity": 100, "image_url": null, "created_at": "2024-06-03T00:00:00Z" },
+    { "id": "p1-07", "company_id": "1", "name": "White H/S MBL shirt - 2025", "scan_code": "INR-WHS-X4Y5Z6A7", "price": 30000, "currency": "₹", "quantity": 95, "image_url": null, "created_at": "2024-06-04T00:00:00Z" },
+    { "id": "p1-08", "company_id": "1", "name": "Green House H/S Tshirt - 2025", "scan_code": "INR-GHT-B8C9D0E1", "price": 2500, "currency": "₹", "quantity": 200, "image_url": null, "created_at": "2024-06-04T00:00:00Z" },
+    { "id": "p1-09", "company_id": "1", "name": "Grey-Maroon Summer Socks - 2025", "scan_code": "INR-GMS-F2G3H4I5", "price": 1500, "currency": "₹", "quantity": 180, "image_url": null, "created_at": "2024-06-05T00:00:00Z" },
+    { "id": "p1-10", "company_id": "1", "name": "Green House H/S Tshirt - 2025", "scan_code": "INR-GHT-J6K7L8M9", "price": 15000, "currency": "₹", "quantity": 70, "image_url": null, "created_at": "2024-06-05T00:00:00Z" },
+    { "id": "p1-11", "company_id": "1", "name": "Crayons 24-Pack - 2025", "scan_code": "INR-C24-N0O1P2Q3", "price": 18000, "currency": "₹", "quantity": 55, "image_url": null, "created_at": "2024-06-06T00:00:00Z" },
+    { "id": "p1-12", "company_id": "1", "name": "Grey Summer House Lower - 2025", "scan_code": "INR-GSH-R4S5T6U7", "price": 45000, "currency": "₹", "quantity": 40, "image_url": null, "created_at": "2024-06-06T00:00:00Z" }
+  ],
+  "2": [
+    { "id": "p2-01", "company_id": "2", "name": "Shirt White - 2025", "scan_code": "INR-GH2-V8W9X0Y1", "price": 7500, "currency": "₹", "quantity": 120, "image_url": null, "created_at": "2024-07-01T00:00:00Z" },
+    { "id": "p2-02", "company_id": "2", "name": "T-shirt Sport - 2025", "scan_code": "INR-TS2-Z2A3B4C5", "price": 8000, "currency": "₹", "quantity": 200, "image_url": null, "created_at": "2024-07-01T00:00:00Z" },
+    { "id": "p2-03", "company_id": "2", "name": "Skirt Standard - 2025", "scan_code": "INR-SK2-D6E7F8G9", "price": 55000, "currency": "₹", "quantity": 25, "image_url": null, "created_at": "2024-07-02T00:00:00Z" },
+    { "id": "p2-04", "company_id": "2", "name": "Navy Check Shorts - 2025", "scan_code": "INR-NC2-H0I1J2K3", "price": 350000, "currency": "₹", "quantity": 10, "image_url": null, "created_at": "2024-07-02T00:00:00Z" },
+    { "id": "p2-05", "company_id": "2", "name": "Navy Check Pants - 2025", "scan_code": "INR-NP2-L4M5N6O7", "price": 120000, "currency": "₹", "quantity": 35, "image_url": null, "created_at": "2024-07-03T00:00:00Z" },
+    { "id": "p2-06", "company_id": "2", "name": "Grey-orange Summer Socks - 2025", "scan_code": "INR-GO2-P8Q9R0S1", "price": 15000, "currency": "₹", "quantity": 90, "image_url": null, "created_at": "2024-07-03T00:00:00Z" },
+    { "id": "p2-07", "company_id": "2", "name": "White H/S MBL Shirt - 2025", "scan_code": "INR-WH2-T2U3V4W5", "price": 22000, "currency": "₹", "quantity": 50, "image_url": null, "created_at": "2024-07-04T00:00:00Z" },
+    { "id": "p2-08", "company_id": "2", "name": "Green House H/S Tshirt - 2025", "scan_code": "INR-GH2-X6Y7Z8A9", "price": 18000, "currency": "₹", "quantity": 65, "image_url": null, "created_at": "2024-07-04T00:00:00Z" }
+  ],
+  "3": [
+    { "id": "p3-01", "company_id": "3", "name": "Shirt White - 2025", "scan_code": "INR-BF3-B0C1D2E3", "price": 6000, "currency": "₹", "quantity": 130, "image_url": null, "created_at": "2024-08-01T00:00:00Z" },
+    { "id": "p3-02", "company_id": "3", "name": "T-shirt Sport - 2025", "scan_code": "INR-BF3-F4G5H6I7", "price": 85000, "currency": "₹", "quantity": 40, "image_url": null, "created_at": "2024-08-01T00:00:00Z" },
+    { "id": "p3-03", "company_id": "3", "name": "Skirt Standard - 2025", "scan_code": "INR-BF3-J8K9L0M1", "price": 180000, "currency": "₹", "quantity": 20, "image_url": null, "created_at": "2024-08-02T00:00:00Z" },
+    { "id": "p3-04", "company_id": "3", "name": "Navy Check Shorts - 2025", "scan_code": "INR-BF3-N2O3P4Q5", "price": 25000, "currency": "₹", "quantity": 55, "image_url": null, "created_at": "2024-08-02T00:00:00Z" },
+    { "id": "p3-05", "company_id": "3", "name": "Navy Check Pants - 2025", "scan_code": "INR-BF3-R6S7T8U9", "price": 35000, "currency": "₹", "quantity": 45, "image_url": null, "created_at": "2024-08-03T00:00:00Z" },
+    { "id": "p3-06", "company_id": "3", "name": "Grey-orange Summer Socks - 2025", "scan_code": "INR-BF3-V0W1X2Y3", "price": 22000, "currency": "₹", "quantity": 80, "image_url": null, "created_at": "2024-08-03T00:00:00Z" },
+    { "id": "p3-07", "company_id": "3", "name": "White H/S MBL Shirt - 2025", "scan_code": "INR-BF3-Z4A5B6C7", "price": 24000, "currency": "₹", "quantity": 85, "image_url": null, "created_at": "2024-08-04T00:00:00Z" },
+    { "id": "p3-08", "company_id": "3", "name": "Green House H/S Tshirt - 2025", "scan_code": "INR-BF3-D8E9F0G1", "price": 15000, "currency": "₹", "quantity": 60, "image_url": null, "created_at": "2024-08-04T00:00:00Z" }
+  ],
+  "4": [
+    { "id": "p4-01", "company_id": "4", "name": "Shirt White - 2025", "scan_code": "INR-LS4-H2I3J4K5", "price": 5000, "currency": "₹", "quantity": 100, "image_url": null, "created_at": "2024-09-01T00:00:00Z" },
+    { "id": "p4-02", "company_id": "4", "name": "T-shirt Sport - 2025", "scan_code": "INR-LS4-L6M7N8O9", "price": 25000, "currency": "₹", "quantity": 40, "image_url": null, "created_at": "2024-09-01T00:00:00Z" },
+    { "id": "p4-03", "company_id": "4", "name": "Skirt Standard - 2025", "scan_code": "INR-LS4-P0Q1R2S3", "price": 15000, "currency": "₹", "quantity": 70, "image_url": null, "created_at": "2024-09-02T00:00:00Z" },
+    { "id": "p4-04", "company_id": "4", "name": "Navy Check Shorts - 2025", "scan_code": "INR-LS4-T4U5V6W7", "price": 45000, "currency": "₹", "quantity": 25, "image_url": null, "created_at": "2024-09-02T00:00:00Z" },
+    { "id": "p4-05", "company_id": "4", "name": "Grey-Maroon Summer Socks - 2025", "scan_code": "INR-LS4-X8Y9Z0A1", "price": 20000, "currency": "₹", "quantity": 35, "image_url": null, "created_at": "2024-09-03T00:00:00Z" },
+    { "id": "p4-06", "company_id": "4", "name": "Grey Summer House Lower - 2025", "scan_code": "INR-LS4-B2C3D4E5", "price": 18000, "currency": "₹", "quantity": 30, "image_url": null, "created_at": "2024-09-03T00:00:00Z" }
+  ]
+}
