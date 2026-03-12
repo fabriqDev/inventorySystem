@@ -1,32 +1,42 @@
 {
   "expo": {
-    "name": "FabriqWorld",
-    "slug": "FabriqWorld",
+    "name": "FabrIQWorld",
+    "slug": "FabrIQWorld",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/appIcon.png",
     "scheme": "fabriqworld",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "This app uses the camera to scan barcodes when adding or returning items."
-      }
+        "NSCameraUsageDescription": "This app uses the camera to scan barcodes when adding or returning items.",
+        "NSBluetoothAlwaysUsageDescription": "Used to connect to your receipt printer for printing orders."
+      },
+      "bundleIdentifier": "com.anonymous.FabriqWorld"
     },
     "android": {
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/appIcon.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.FabriqWorld"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/appIcon.png"
     },
     "plugins": [
       "expo-router",

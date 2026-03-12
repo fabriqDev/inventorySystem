@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router';
-import { CartProvider } from '@/contexts/cart-context';
+import { CartProvider } from '@/core/context/cart-context';
 
 export default function CompanyIdLayout() {
   return (

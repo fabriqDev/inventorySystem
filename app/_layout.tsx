@@ -6,13 +6,13 @@ import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
-import { SessionProvider, useAuth } from '@/contexts/auth-context';
-import { AppThemeProvider } from '@/contexts/theme-context';
-import { DataSourceProvider } from '@/contexts/data-source-context';
-import { CompanyProvider } from '@/contexts/company-context';
-import { ProductCacheProvider } from '@/contexts/product-cache-context';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { ToastHost } from '@/components/toast-host';
+import { SessionProvider, useAuth } from '@/core/context/auth-context';
+import { AppThemeProvider } from '@/core/context/theme-context';
+import { DataSourceProvider } from '@/core/context/data-source-context';
+import { CompanyProvider } from '@/core/context/company-context';
+import { ProductCacheProvider } from '@/core/context/product-cache-context';
+import { useColorScheme } from '@/core/hooks/use-color-scheme';
+import { ToastHost } from '@/core/components/toast-host';
 
 SplashScreen.preventAutoHideAsync();
 
