@@ -1,0 +1,327 @@
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { PrinterSelectModal } from '@/core/components/printer-select-modal';
+import { ThemedText } from '@/core/components/themed-text';
+import { ThemedView } from '@/core/components/themed-view';
+import { IconSymbol } from '@/core/components/ui/icon-symbol';
+import { Colors } from '@/core/constants/theme';
+import { useColorScheme } from '@/core/hooks/use-color-scheme';
+import { formatPrice } from '@/core/services/format';
+import {
+  buildReceiptText,
+  connectAndPrint,
+  getSavedPrinter,
+  isPrintSupported,
+  type PrinterDevice,
+  type ReceiptData,
+} from '@/core/services/printing';
+import { toast } from '@/core/services/toast';
+import { Strings } from '@/core/strings';
+
+const SELLER_NAME = Strings.company.sellerName;
+
+type ReceiptLineItem = { product_name: string; size?: string; article_code?: string; quantity: number; unit_price: number; total: number };
+
+function parseItemsJson(itemsJson: string | undefined): ReceiptLineItem[] {
+  if (!itemsJson) return [];
+  try {
+    const decoded = decodeURIComponent(itemsJson);
+    const parsed = JSON.parse(decoded) as ReceiptLineItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function paymentMethodLabel(method: string): string {
+  if (method === 'rz_pg') return Strings.company.onlinePg;
+  if (method === 'online') return Strings.company.online;
+  return Strings.company.cash;
+}
+
+export default function ReceiptPreviewScreen() {
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const params = useLocalSearchParams<{
+    id: string;
+    orderId: string;
+    total: string;
+    paymentMethod: string;
+    itemsJson?: string;
+    currency?: string;
+  }>();
+
+  const orderId = params.orderId ?? '';
+  const total = Number(params.total) || 0;
+  const paymentMethod = params.paymentMethod ?? 'cash';
+  const currency = params.currency ?? '₹';
+  const items = parseItemsJson(params.itemsJson);
+
+  const [savedPrinter, setSavedPrinter] = useState<PrinterDevice | null>(null);
+  const [showPrinterSelect, setShowPrinterSelect] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const refreshPrinter = useCallback(async () => {
+    const saved = await getSavedPrinter();
+    setSavedPrinter(saved);
+  }, []);
+
+  useEffect(() => {
+    if (isPrintSupported) {
+      refreshPrinter();
+    }
+  }, [refreshPrinter]);
+
+  // Receipt always uses server order id (passed from checkout after successful order).
+  const serverOrderId = orderId;
+  const receiptData: ReceiptData = {
+    orderId: serverOrderId,
+    createdAt: new Date().toISOString(),
+    items,
+    subtotal: total,
+    total,
+    paymentMethod,
+    currency,
+  };
+
+  const receiptText = buildReceiptText(receiptData);
+  const canPrint = isPrintSupported && savedPrinter != null;
+
+  const handlePrint = useCallback(async () => {
+    if (!canPrint || !savedPrinter) return;
+    setPrinting(true);
+    try {
+      await connectAndPrint(receiptText, savedPrinter);
+      toast.show({ type: 'success', message: Strings.company.receiptSentToPrinter });
+    } catch {
+      toast.show({ type: 'error', message: Strings.company.printFailed });
+      setShowPrinterSelect(true);
+    } finally {
+      setPrinting(false);
+    }
+  }, [canPrint, savedPrinter, receiptText]);
+
+  const companyId = params.id ?? '';
+
+  const handleDone = useCallback(() => {
+    if (companyId) {
+      router.dismissTo(`/company/${companyId}` as any);
+    } else {
+      router.back();
+    }
+  }, [companyId, router]);
+
+  const handlePrinterConnected = useCallback(() => {
+    refreshPrinter();
+    setShowPrinterSelect(false);
+  }, [refreshPrinter]);
+
+  return (
+    <ThemedView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
+      <Stack.Screen
+        options={{
+          title: Strings.company.receipt,
+          headerRight: isPrintSupported
+            ? () => (
+                <Pressable
+                  onPress={() => setShowPrinterSelect(true)}
+                  style={styles.headerBtn}
+                  hitSlop={8}
+                >
+                  <IconSymbol name="printer.fill" size={22} color={colors.tint} />
+                  <ThemedText style={[styles.headerBtnLabel, { color: colors.tint }]}>
+                    {Strings.common.selectPrinter}
+                  </ThemedText>
+                </Pressable>
+              )
+            : undefined,
+        }}
+      />
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={[styles.receiptCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
+          <ThemedText type="subtitle" style={styles.sellerName}>
+            {SELLER_NAME}
+          </ThemedText>
+          <ThemedText style={[styles.orderId, { color: colors.icon }]}>
+            Order #{serverOrderId.length > 12 ? serverOrderId.slice(0, 12) + '…' : serverOrderId}
+          </ThemedText>
+          <View style={[styles.divider, { backgroundColor: colors.icon + '20' }]} />
+
+          {items.map((item, index) => (
+            <View key={index} style={styles.itemRow}>
+              <ThemedText style={styles.itemName} numberOfLines={2}>
+                {item.product_name}
+              </ThemedText>
+              <View style={styles.itemMeta}>
+                <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
+                  {item.quantity} × {formatPrice(item.unit_price, currency)}
+                </ThemedText>
+                <ThemedText style={styles.itemTotal}>
+                  {formatPrice(item.total, currency)}
+                </ThemedText>
+              </View>
+            </View>
+          ))}
+
+          <View style={[styles.divider, { backgroundColor: colors.icon + '20' }]} />
+          <View style={styles.totalRow}>
+            <ThemedText type="subtitle">{Strings.company.total}</ThemedText>
+            <ThemedText type="subtitle">{formatPrice(total, currency)}</ThemedText>
+          </View>
+          <ThemedText style={[styles.paymentRow, { color: colors.icon }]}>
+            {Strings.company.payment}: {paymentMethodLabel(paymentMethod)}
+          </ThemedText>
+        </View>
+      </ScrollView>
+
+      <View style={[styles.footer, { borderTopColor: colors.icon + '20' }]}>
+        {isPrintSupported && (
+          <Pressable
+            onPress={handlePrint}
+            disabled={!canPrint || printing}
+            style={[
+              styles.printBtn,
+              { backgroundColor: canPrint ? colors.tint : colors.icon + '30' },
+            ]}
+          >
+            <IconSymbol
+              name="printer.fill"
+              size={20}
+              color={canPrint ? '#fff' : colors.icon}
+            />
+            <ThemedText
+              style={[
+                styles.printBtnText,
+                { color: canPrint ? '#fff' : colors.icon },
+              ]}
+            >
+              {canPrint ? Strings.common.print : Strings.common.noPrinterConnected}
+            </ThemedText>
+          </Pressable>
+        )}
+        <Pressable
+          onPress={handleDone}
+          style={[styles.doneBtn, { borderColor: colors.icon + '40' }]}
+        >
+          <ThemedText style={{ color: colors.text }}>{Strings.common.done}</ThemedText>
+        </Pressable>
+      </View>
+
+      <PrinterSelectModal
+        visible={showPrinterSelect}
+        onClose={() => setShowPrinterSelect(false)}
+        pendingReceiptText={null}
+        onDone={handlePrinterConnected}
+      />
+    </ThemedView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  headerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  headerBtnLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 24,
+  },
+  receiptCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 20,
+  },
+  sellerName: {
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  orderId: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  divider: {
+    height: 1,
+    marginVertical: 12,
+  },
+  itemRow: {
+    marginBottom: 12,
+  },
+  itemName: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  itemMeta: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+    paddingLeft: 8,
+  },
+  itemTotal: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  paymentRow: {
+    fontSize: 13,
+    marginTop: 8,
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    gap: 10,
+  },
+  printBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  printBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  doneBtn: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+});
