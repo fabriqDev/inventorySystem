@@ -5,6 +5,14 @@ import { fetchProducts } from '@/core/api/products';
 
 const MAX_PRODUCTS_PER_COMPANY = 300;
 
+interface StockAdjustment {
+  article_code: string;
+  /** Change in available stock (negative = decrease, positive = increase). */
+  quantity_delta: number;
+  /** Change in reserved count (positive = move to reserved, negative = release from reserved). */
+  reserved_delta?: number;
+}
+
 type ProductCacheContextType = {
   prefetchProducts: (companyId: string) => Promise<void>;
   refreshProducts: (companyId: string) => Promise<void>;
@@ -13,6 +21,11 @@ type ProductCacheContextType = {
   filterProducts: (companyId: string, query: string) => Product[];
   isLoading: (companyId: string) => boolean;
   isCached: (companyId: string) => boolean;
+  /**
+   * Optimistically adjust stock/reserved in the local cache without an API call.
+   * The server remains the source of truth; cache is refreshed on next TilesScreen visit.
+   */
+  adjustStock: (companyId: string, adjustments: StockAdjustment[]) => void;
 };
 
 const ProductCacheContext = createContext<ProductCacheContextType | undefined>(undefined);
@@ -109,6 +122,26 @@ export function ProductCacheProvider({ children }: { children: React.ReactNode }
     [cache],
   );
 
+  const adjustStock = useCallback(
+    (companyId: string, adjustments: StockAdjustment[]) => {
+      setCache((prev) => {
+        const products = prev[companyId];
+        if (!products) return prev;
+        const updated = products.map((p) => {
+          const adj = adjustments.find((a) => a.article_code === p.article_code);
+          if (!adj) return p;
+          return {
+            ...p,
+            quantity: Math.max(0, (p.quantity ?? 0) + adj.quantity_delta),
+            reserved: Math.max(0, (p.reserved ?? 0) + (adj.reserved_delta ?? 0)),
+          };
+        });
+        return { ...prev, [companyId]: updated };
+      });
+    },
+    [],
+  );
+
   const value: ProductCacheContextType = {
     prefetchProducts,
     refreshProducts,
@@ -117,6 +150,7 @@ export function ProductCacheProvider({ children }: { children: React.ReactNode }
     filterProducts,
     isLoading,
     isCached,
+    adjustStock,
   };
 
   return (

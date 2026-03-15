@@ -4,6 +4,7 @@ import productsJson from '@/assets/mock/products.json';
 import type { CreateOrderInput, CreateOrderResult, CreateTransferInput } from '@/core/backend/types';
 import type { CompanyWithRole } from '@/core/types/company';
 import type { OrderWithItems } from '@/core/types/order';
+import { DEFAULT_PAYMENT_METHOD_VALUE, fromPaymentMethodValue } from '@/core/types/order';
 import type { Product } from '@/core/types/product';
 import type { InventoryTransfer, TransferItem } from '@/core/types/transfer';
 
@@ -105,13 +106,21 @@ export async function getMockProducts(companyId: string): Promise<Product[]> {
   return simulateNetwork(products);
 }
 
-/** Mock orders JSON uses order_id; map to server_order_id for Order type. */
+/** Mock orders JSON uses order_id and payment_method; map to OrderWithItems with payment_type, payment_provider, cash_share, online_share. */
 export async function getMockOrders(companyId: string): Promise<OrderWithItems[]> {
-  const map = ordersJson as unknown as Record<string, (OrderWithItems & { order_id?: string })[]>;
+  const map = ordersJson as unknown as Record<string, (OrderWithItems & { order_id?: string; payment_method?: string })[]>;
   const raw = map[companyId] ?? [];
   const list = raw.map((o) => {
-    const { order_id, ...rest } = o;
-    return { ...rest, server_order_id: order_id ?? o.server_order_id } as OrderWithItems;
+    const { order_id, payment_method, ...rest } = o;
+    const payment = fromPaymentMethodValue(payment_method ?? DEFAULT_PAYMENT_METHOD_VALUE);
+    return {
+      ...rest,
+      server_order_id: order_id ?? o.server_order_id,
+      payment_type: payment.payment_type,
+      payment_provider: payment.payment_provider,
+      cash_share: payment.cash_share,
+      online_share: payment.online_share,
+    } as OrderWithItems;
   });
   const sorted = [...list].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),

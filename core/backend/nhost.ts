@@ -9,7 +9,9 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { toast } from '@/core/services/toast';
+import { PaymentProvider, PaymentType } from '@/core/types/order';
 import type { Product } from '@/core/types/product';
 import type {
   AppSession,
@@ -17,9 +19,14 @@ import type {
   BackendProvider,
   CreateOrderInput,
   CreateOrderResult,
+  CreateRazorpayOrderInput,
+  CreateRazorpayOrderResult,
   CreateTransferInput,
   CreateTransferResult,
   DataProvider,
+  UpdateOrderStatusInput,
+  VerifyRazorpayPaymentInput,
+  VerifyRazorpayPaymentResult,
 } from './types';
 
 const SESSION_KEY = DEFAULT_SESSION_KEY;
@@ -209,6 +216,7 @@ const COMPANIES_QUERY = `
         name: company_name
         slug: company_code
         address
+        rz_pg
         created_at
         updated_at
       }
@@ -287,36 +295,69 @@ const PRODUCT_BY_BARCODE_QUERY = `
 
 const ORDERS_QUERY = `
   query GetOrders($companyId: uuid!) {
-    order_history(
-      where: {
-        company_id: { _eq: $companyId }
-        order_items: { order_id: { _is_null: false } }
-      }
-      order_by: { created_at: desc }
-    ) {
-      order_id
-      company_id
+  order_history(
+    where: {
+      company_id: { _eq: $companyId }
+      order_items: { order_id: { _is_null: false } }
+    }
+    order_by: { created_at: desc }
+  ) {
+    order_id
+    company_id
+    total
+    payment_type
+    payment_provider
+    cash_share
+    online_share
+    created_at
+    status
+    subtotal
+    order_items {
+      article_code
+      product_name
+      quantity
+      unit_price
       total
-      payment_method
-      created_at
-      status
-      subtotal
-      order_items {
-        product_name
-        quantity
-        unit_price
-        total
-        transaction_type
+      transaction_type
+      product {
+        size
       }
     }
   }
-`;
+}`;
+
 
 const CREATE_ORDER_MUTATION = `
   mutation CreateOrder($order: order_history_insert_input!) {
     insert_order_history_one(object: $order) {
       order_id
       total
+    }
+  }
+`;
+
+const CREATE_RAZORPAY_ORDER_ACTION = `
+  mutation CreateRazorpayOrder($server_order_id: uuid!, $amount: Int!, $currency: String!) {
+    createRazorpayOrder(server_order_id: $server_order_id, amount: $amount, currency: $currency) {
+      razorpay_order_id
+    }
+  }
+`;
+
+const VERIFY_RAZORPAY_PAYMENT_ACTION = `
+  mutation VerifyRazorpayPayment($server_order_id: uuid!, $razorpay_order_id: String!, $razorpay_payment_id: String!, $razorpay_signature: String!) {
+    verifyRazorpayPayment(server_order_id: $server_order_id, razorpay_order_id: $razorpay_order_id, razorpay_payment_id: $razorpay_payment_id, razorpay_signature: $razorpay_signature) {
+      success
+      status
+    }
+  }
+`;
+
+const UPDATE_ORDER_STATUS_MUTATION = `
+  mutation UpdateOrderStatus($orderId: uuid!, $status: String!) {
+    update_order_history_by_pk(pk_columns: { order_id: $orderId }, _set: { status: $status }) {
+      order_id
+      status
     }
   }
 `;
@@ -409,16 +450,17 @@ const CREATE_TRANSFER_MUTATION = `
 `;
 
 const UPDATE_TRANSFER_MUTATION = `
-  mutation UpdateTransfer($id: uuid!, $status: String!, $respondedBy: uuid!) {
-    update_inventory_transfers_by_pk(
-      pk_columns: { id: $id }
-      _set: { status: $status, responded_by: $respondedBy }
-    ) {
-      id
-      status
-    }
+ mutation UpdateTransfer($id: uuid!, $status: transfer_status_enum!, $respondedBy: uuid!) {
+  update_inventory_transfers_by_pk(
+    pk_columns: { id: $id }
+    _set: { status: $status, responded_by: $respondedBy }
+  ) {
+    id
+    status
   }
+}
 `;
+
 
 
 
@@ -433,7 +475,7 @@ function mapProductInventoryRow(row: any): Product {
     name: `${name}${size}`.trim() || product.article_code,
     scan_code: product.article_code,
     price: row.selling_price ?? 0,
-    currency: '₹',
+    currency: CURRENCY_DEFAULT,
     quantity: row.stock ?? 0,
     size: product.size ?? undefined,
     discount_percentage: row.discount_percentage ?? 0,
@@ -529,25 +571,30 @@ const data: DataProvider = {
   async fetchOrders(companyId, _opts) {
     const d = await gqlRequest<any>({ query: ORDERS_QUERY, variables: { companyId } });
     const rows = d?.order_history ?? [];
-    return rows.map((o: any) => ({
-      server_order_id: o.order_id,
-      company_id: o.company_id ?? companyId,
-      subtotal: o.subtotal ?? o.total ?? 0,
-      total: o.total ?? 0,
-      currency: '₹',
-      payment_method: o.payment_method ?? 'cash',
-      status: o.status ?? 'success',
-      created_at: o.created_at ?? new Date().toISOString(),
-      items: (o.order_items ?? []).map((i: any) => ({
-        article_code: i.article_code ?? '',
-        product_name: i.product_name ?? '',
-        size: i.size ?? undefined,
-        quantity: i.quantity ?? 0,
-        unit_price: i.unit_price ?? 0,
-        total: i.total ?? 0,
-        transaction_type: i.transaction_type ?? 'sale',
-      })),
-    }));
+    return rows.map((o: any) => {
+      return {
+        server_order_id: o.order_id,
+        company_id: o.company_id ?? companyId,
+        subtotal: o.subtotal ?? o.total ?? 0,
+        total: o.total ?? 0,
+        currency: CURRENCY_DEFAULT,
+        payment_type: o.payment_type ?? PaymentType.CASH,
+        payment_provider: o.payment_provider ?? PaymentProvider.NONE,
+        cash_share: o.cash_share ?? 0,
+        online_share: o.online_share ?? 0,
+        status: o.status ?? 'success',
+        created_at: o.created_at ?? new Date().toISOString(),
+        items: (o.order_items ?? []).map((i: any) => ({
+          article_code: i.article_code ?? '',
+          product_name: i.product_name ?? '',
+          size: i.size ?? undefined,
+          quantity: i.quantity ?? 0,
+          unit_price: i.unit_price ?? 0,
+          total: i.total ?? 0,
+          transaction_type: i.transaction_type ?? 'sale',
+        })),
+      };
+    });
   },
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null> {
@@ -569,8 +616,11 @@ const data: DataProvider = {
           user_id: input.user_id,
           subtotal: input.subtotal,
           total: input.total,
-          payment_method: input.payment_method,
-          status: 'success',
+          payment_type: input.payment_type,
+          ...(input.payment_provider ? { payment_provider: input.payment_provider } : {}),
+          cash_share: input.cash_share,
+          online_share: input.online_share,
+          status: input.status ?? 'success',
           order_items: { data: orderItemsData },
         },
       },
@@ -578,6 +628,41 @@ const data: DataProvider = {
     const orderRow = orderData?.insert_order_history_one;
     if (!orderRow?.order_id) return null;
     return { server_order_id: orderRow.order_id, total: orderRow.total ?? input.total };
+  },
+
+  async createRazorpayOrder(input: CreateRazorpayOrderInput): Promise<CreateRazorpayOrderResult> {
+    const d = await gqlRequest<any>({
+      query: CREATE_RAZORPAY_ORDER_ACTION,
+      variables: {
+        server_order_id: input.server_order_id,
+        amount: input.amount,
+        currency: input.currency,
+      },
+    });
+    return { razorpay_order_id: d.createRazorpayOrder.razorpay_order_id };
+  },
+
+  async verifyRazorpayPayment(input: VerifyRazorpayPaymentInput): Promise<VerifyRazorpayPaymentResult> {
+    const d = await gqlRequest<any>({
+      query: VERIFY_RAZORPAY_PAYMENT_ACTION,
+      variables: {
+        server_order_id: input.server_order_id,
+        razorpay_order_id: input.razorpay_order_id,
+        razorpay_payment_id: input.razorpay_payment_id,
+        razorpay_signature: input.razorpay_signature,
+      },
+    });
+    return {
+      success: d.verifyRazorpayPayment.success,
+      status: d.verifyRazorpayPayment.status,
+    };
+  },
+
+  async updateOrderStatus(input: UpdateOrderStatusInput): Promise<void> {
+    await gqlRequest<any>({
+      query: UPDATE_ORDER_STATUS_MUTATION,
+      variables: { orderId: input.server_order_id, status: input.status },
+    });
   },
 
   async fetchPendingTransfers(companyId) {

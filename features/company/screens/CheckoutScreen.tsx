@@ -1,13 +1,30 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { createOrder } from '@/core/api/orders';
+import { createOrder, createRazorpayOrder, updateOrderStatus, verifyRazorpayPayment } from '@/core/api/orders';
 import type { CreateOrderInput, CreateOrderItemInput } from '@/core/backend/types';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useAuth } from '@/core/context/auth-context';
 import { useCart } from '@/core/context/cart-context';
@@ -16,10 +33,28 @@ import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice } from '@/core/services/format';
+import { openRazorpayCheckout, RazorpayError } from '@/core/services/razorpay';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
 import type { CartItem } from '@/core/types/cart';
-import type { PaymentMethod } from '@/core/types/order';
+import { CheckoutButton, type PaymentButtonToShowEnum, getOrderPaymentForCheckout } from '@/core/types/order';
+import { getAvailableStock } from '@/core/types/product';
+
+type PaymentStatusState =
+  | { phase: 'processing' }
+  | { phase: 'verifying' }
+  | { phase: 'success' }
+  | { phase: 'failed'; message: string }
+  | { phase: 'verify_failed'; message: string }
+  | { phase: 'cancelled' }
+  | null;
+
+/** Distinct filled colors for each payment option in the modal (Cash uses theme tint). */
+const PAYMENT_COLORS = {
+  online: '#059669',
+  split: '#7c3aed',
+  razorpay: '#2563eb',
+};
 
 /** Single checkout line: article name, size below, and right side "qty × unit price = subtotal". No quantity controls. */
 function CheckoutItemCell({
@@ -123,6 +158,133 @@ function cartToReceiptItems(
   }));
 }
 
+function AnimatedCheckmark({ color }: { color: string }) {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    scale.value = withSpring(1, { damping: 8, stiffness: 120 });
+    opacity.value = withTiming(1, { duration: 300 });
+  }, [scale, opacity]);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+  return (
+    <Animated.View style={[paymentStatusStyles.iconCircle, { backgroundColor: '#E8F5E9' }, animStyle]}>
+      <IconSymbol name="checkmark" size={40} color={color} />
+    </Animated.View>
+  );
+}
+
+function AnimatedCross({ color }: { color: string }) {
+  const scale = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    scale.value = withSequence(
+      withSpring(1.15, { damping: 6, stiffness: 140 }),
+      withSpring(1, { damping: 10 }),
+    );
+    opacity.value = withTiming(1, { duration: 300 });
+  }, [scale, opacity]);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+  return (
+    <Animated.View style={[paymentStatusStyles.iconCircle, { backgroundColor: '#FFEBEE' }, animStyle]}>
+      <IconSymbol name="xmark" size={40} color={color} />
+    </Animated.View>
+  );
+}
+
+function PaymentStatusOverlay({
+  status,
+  onRetry,
+  onRetryVerify,
+  onCancel,
+  colors,
+}: {
+  status: PaymentStatusState;
+  onRetry: () => void;
+  onRetryVerify: () => void;
+  onCancel: () => void;
+  colors: { text: string; icon: string; background: string; tint: string };
+}) {
+  if (!status) return null;
+  return (
+    <View style={[StyleSheet.absoluteFill, paymentStatusStyles.overlay]}>
+      <View style={[paymentStatusStyles.card, { backgroundColor: colors.background }]}>
+        {status.phase === 'processing' && (
+          <>
+            <ActivityIndicator size="large" color={colors.tint} />
+            <ThemedText style={paymentStatusStyles.title}>Processing payment...</ThemedText>
+            <ThemedText style={[paymentStatusStyles.hint, { color: colors.icon }]}>
+              Please do not close the app.
+            </ThemedText>
+          </>
+        )}
+        {status.phase === 'verifying' && (
+          <>
+            <ActivityIndicator size="large" color={colors.tint} />
+            <ThemedText style={paymentStatusStyles.title}>Verifying payment...</ThemedText>
+            <ThemedText style={[paymentStatusStyles.hint, { color: colors.icon }]}>
+              Please do not close the app.
+            </ThemedText>
+          </>
+        )}
+        {status.phase === 'success' && (
+          <>
+            <AnimatedCheckmark color="#2E7D32" />
+            <ThemedText style={paymentStatusStyles.title}>Payment successful</ThemedText>
+          </>
+        )}
+        {status.phase === 'failed' && (
+          <>
+            <AnimatedCross color="#C62828" />
+            <ThemedText style={paymentStatusStyles.title}>Payment failed</ThemedText>
+            <ThemedText style={[paymentStatusStyles.hint, { color: colors.icon }]}>
+              {status.message}
+            </ThemedText>
+            <Pressable onPress={onRetry} style={[paymentStatusStyles.retryBtn, { backgroundColor: colors.tint }]}>
+              <ThemedText style={paymentStatusStyles.retryBtnText}>Retry payment</ThemedText>
+            </Pressable>
+            <Pressable onPress={onCancel} style={paymentStatusStyles.cancelBtn}>
+              <ThemedText style={{ color: colors.icon }}>Cancel</ThemedText>
+            </Pressable>
+          </>
+        )}
+        {status.phase === 'verify_failed' && (
+          <>
+            <AnimatedCross color="#E65100" />
+            <ThemedText style={paymentStatusStyles.title}>Verification failed</ThemedText>
+            <ThemedText style={[paymentStatusStyles.hint, { color: colors.icon }]}>
+              {status.message}
+            </ThemedText>
+            <Pressable onPress={onRetryVerify} style={[paymentStatusStyles.retryBtn, { backgroundColor: colors.tint }]}>
+              <ThemedText style={paymentStatusStyles.retryBtnText}>Retry verification</ThemedText>
+            </Pressable>
+            <Pressable onPress={onCancel} style={paymentStatusStyles.cancelBtn}>
+              <ThemedText style={{ color: colors.icon }}>Check orders</ThemedText>
+            </Pressable>
+          </>
+        )}
+        {status.phase === 'cancelled' && (
+          <>
+            <AnimatedCross color="#E65100" />
+            <ThemedText style={paymentStatusStyles.title}>Payment cancelled</ThemedText>
+            <Pressable onPress={onRetry} style={[paymentStatusStyles.retryBtn, { backgroundColor: colors.tint }]}>
+              <ThemedText style={paymentStatusStyles.retryBtnText}>Retry payment</ThemedText>
+            </Pressable>
+            <Pressable onPress={onCancel} style={paymentStatusStyles.cancelBtn}>
+              <ThemedText style={{ color: colors.icon }}>Cancel</ThemedText>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export default function CheckoutScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -133,13 +295,24 @@ export default function CheckoutScreen() {
   const { items, total, currency, clearCart } = useCart();
   const { selectedCompany } = useCompany();
   const { useMockData } = useDataSource();
-  const { getCachedProducts } = useProductCache();
+  const { getCachedProducts, adjustStock } = useProductCache();
 
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [showPaymentChoice, setShowPaymentChoice] = useState(false);
+  const [showSplitInput, setShowSplitInput] = useState(false);
+  const [splitCashInput, setSplitCashInput] = useState('');
+  const [splitOnlineInput, setSplitOnlineInput] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatusState>(null);
   /** When true, we are navigating to receipt after success; skip empty-cart redirect so receipt screen shows. */
   const navigatingToReceiptRef = useRef(false);
+  const razorpayContextRef = useRef<{
+    serverOrderId: string;
+    razorpayOrderId: string;
+    receiptItems: ReturnType<typeof cartToReceiptItems>;
+    payment: ReturnType<typeof getOrderPaymentForCheckout>;
+    sdkResult?: { razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string };
+  } | null>(null);
 
   const userId = session?.user?.id ?? '';
   const showOnlinePG = selectedCompany?.razorpay_id != null && selectedCompany?.razorpay_id !== '';
@@ -148,7 +321,7 @@ export default function CheckoutScreen() {
     const products = getCachedProducts(companyId);
     const map = new Map<string, number>();
     for (const p of products) {
-      map.set(p.article_code, Math.max(0, (p.quantity ?? 0) - (p.reserved ?? 0)));
+      map.set(p.article_code, getAvailableStock(p));
     }
     return map;
   }, [getCachedProducts, companyId]);
@@ -172,15 +345,44 @@ export default function CheckoutScreen() {
     }
   }, [items.length, companyId, router]);
 
+  const navigateToReceipt = useCallback(
+    (serverOrderId: string, resultTotal: number, payment: ReturnType<typeof getOrderPaymentForCheckout>, receiptItems: ReturnType<typeof cartToReceiptItems>) => {
+      navigatingToReceiptRef.current = true;
+      clearCart();
+      toast.show({ type: 'success', message: Strings.company.orderPlacedSuccess });
+      setShowPaymentChoice(false);
+      if (Platform.OS === 'web') {
+        router.dismissTo(`/company/${companyId}` as any);
+      } else {
+        const itemsJson = encodeURIComponent(JSON.stringify(receiptItems));
+        router.replace({
+          pathname: '/company/[id]/receipt-preview',
+          params: {
+            id: companyId,
+            orderId: serverOrderId,
+            total: String(resultTotal),
+            payment_type: payment.payment_type,
+            payment_provider: payment.payment_provider,
+            itemsJson,
+            currency,
+          },
+        } as any);
+      }
+    },
+    [clearCart, router, companyId, currency],
+  );
+
   const submitOrder = useCallback(
-    async (payment_method: PaymentMethod) => {
+    async (button: PaymentButtonToShowEnum, splitAmounts?: { cash_share: number; online_share: number }) => {
       if (!companyId || !userId || items.length === 0) {
         if (!userId) toast.show({ type: 'error', message: Strings.company.pleaseSignInToPlaceOrder });
         return;
       }
+      if (button === CheckoutButton.SPLIT && !splitAmounts) return;
       setOrderError(null);
       const receiptItems = cartToReceiptItems(items);
       setSubmitting(true);
+      const payment = getOrderPaymentForCheckout(button, total, splitAmounts);
       try {
         const orderInput: CreateOrderInput = {
           company_id: companyId,
@@ -188,7 +390,10 @@ export default function CheckoutScreen() {
           subtotal: total,
           tax_amount: 0,
           total,
-          payment_method,
+          payment_type: payment.payment_type,
+          payment_provider: payment.payment_provider,
+          cash_share: payment.cash_share,
+          online_share: payment.online_share,
           order_items: cartToOrderItems(items),
         };
         const result = await createOrder(orderInput, useMockData);
@@ -196,31 +401,16 @@ export default function CheckoutScreen() {
           setOrderError('Order could not be completed. Please try again.');
           return;
         }
-        const serverOrderId = result.server_order_id;
-        if (Platform.OS === 'web') {
-          navigatingToReceiptRef.current = true;
-          clearCart();
-          toast.show({ type: 'success', message: Strings.company.orderPlacedSuccess });
-          setShowPaymentChoice(false);
-          router.dismissTo(`/company/${companyId}` as any);
-        } else {
-          navigatingToReceiptRef.current = true;
-          clearCart();
-          toast.show({ type: 'success', message: Strings.company.orderPlacedSuccess });
-          setShowPaymentChoice(false);
-          const itemsJson = encodeURIComponent(JSON.stringify(receiptItems));
-          router.replace({
-            pathname: '/company/[id]/receipt-preview',
-            params: {
-              id: companyId,
-              orderId: serverOrderId,
-              total: String(result.total),
-              paymentMethod: payment_method,
-              itemsJson,
-              currency,
-            },
-          } as any);
-        }
+        // Optimistically update local stock so the next sale sees correct quantities.
+        // Server is the source of truth; cache refreshes on next TilesScreen visit.
+        adjustStock(
+          companyId,
+          items.map((i) => ({
+            article_code: i.article_code,
+            quantity_delta: i.transactionType === 'refund' ? i.quantity : -i.quantity,
+          })),
+        );
+        navigateToReceipt(result.server_order_id, result.total, payment, receiptItems);
       } catch (e: any) {
         const msg = e?.detail ?? e?.message ?? Strings.company.somethingWentWrongTryAgain;
         setOrderError(msg);
@@ -228,28 +418,256 @@ export default function CheckoutScreen() {
         setSubmitting(false);
       }
     },
-    [companyId, userId, items, total, useMockData, clearCart, router],
+    [companyId, userId, items, total, useMockData, navigateToReceipt, adjustStock],
   );
 
   const handleCollectPayment = useCallback(() => {
     setShowPaymentChoice(true);
   }, []);
 
+  const runVerification = useCallback(async (ctx: NonNullable<typeof razorpayContextRef.current>) => {
+    if (!ctx.sdkResult) return;
+    setPaymentStatus({ phase: 'verifying' });
+    try {
+      const verification = await verifyRazorpayPayment({
+        server_order_id: ctx.serverOrderId,
+        razorpay_order_id: ctx.sdkResult.razorpay_order_id,
+        razorpay_payment_id: ctx.sdkResult.razorpay_payment_id,
+        razorpay_signature: ctx.sdkResult.razorpay_signature,
+      });
+      if (verification.success) {
+        // Optimistically update local stock after verified Razorpay payment.
+        // Razorpay flow is always a sale (never a refund), so stock decreases.
+        if (companyId) {
+          adjustStock(
+            companyId,
+            ctx.receiptItems.map((i) => ({
+              article_code: i.article_code ?? '',
+              quantity_delta: -i.quantity,
+            })),
+          );
+        }
+        setPaymentStatus({ phase: 'success' });
+        setTimeout(() => {
+          setPaymentStatus(null);
+          navigateToReceipt(ctx.serverOrderId, total, ctx.payment, ctx.receiptItems);
+        }, 1500);
+      } else {
+        setPaymentStatus({
+          phase: 'verify_failed',
+          message:
+            'Payment signature could not be verified by our server. ' +
+            'Your money is safe — no extra charge will occur. ' +
+            'Please retry or check your orders.',
+        });
+      }
+    } catch {
+      setPaymentStatus({
+        phase: 'verify_failed',
+        message:
+          'Unable to reach server for verification. ' +
+          'This is likely a network issue — your payment is safe. ' +
+          'Please check your connection and retry.',
+      });
+    }
+  }, [total, navigateToReceipt, companyId, adjustStock]);
+
+  const openRazorpaySDK = useCallback(async (razorpayOrderId: string) => {
+    const razorpayKey = selectedCompany?.razorpay_id;
+    if (!razorpayKey) return;
+
+    setPaymentStatus({ phase: 'processing' });
+    try {
+      const sdkResult = await openRazorpayCheckout({
+        key: razorpayKey,
+        order_id: razorpayOrderId,
+        amount: total,
+        currency: currency === CURRENCY_DEFAULT ? 'INR' : currency,
+        name: selectedCompany?.name ?? 'Payment',
+        theme: { color: colors.tint },
+      });
+
+      const ctx = razorpayContextRef.current;
+      if (!ctx) return;
+
+      ctx.sdkResult = sdkResult;
+      await runVerification(ctx);
+    } catch (err) {
+      if (err instanceof RazorpayError && err.code === 2) {
+        setPaymentStatus({ phase: 'cancelled' });
+      } else {
+        const msg = err instanceof RazorpayError
+          ? err.description
+          : 'Something went wrong during payment. No amount was charged. Please try again.';
+        setPaymentStatus({ phase: 'failed', message: msg });
+      }
+    }
+  }, [selectedCompany, total, currency, colors.tint, runVerification]);
+
+  const handleRazorpayPayment = useCallback(async () => {
+    if (!companyId || !userId || items.length === 0) {
+      if (!userId) toast.show({ type: 'error', message: Strings.company.pleaseSignInToPlaceOrder });
+      return;
+    }
+    const razorpayKey = selectedCompany?.razorpay_id;
+    if (!razorpayKey) {
+      toast.show({ type: 'error', message: 'Razorpay is not configured for this company.' });
+      return;
+    }
+
+    setShowPaymentChoice(false);
+    setOrderError(null);
+    setSubmitting(true);
+
+    const receiptItems = cartToReceiptItems(items);
+    const payment = getOrderPaymentForCheckout(CheckoutButton.RAZORPAY, total);
+
+    try {
+      const orderInput: CreateOrderInput = {
+        company_id: companyId,
+        user_id: userId,
+        subtotal: total,
+        tax_amount: 0,
+        total,
+        payment_type: payment.payment_type,
+        payment_provider: payment.payment_provider,
+        cash_share: payment.cash_share,
+        online_share: payment.online_share,
+        status: 'pending',
+        order_items: cartToOrderItems(items),
+      };
+      const result = await createOrder(orderInput, useMockData);
+      if (!result) {
+        setOrderError('Could not create order on our server. No payment was charged. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+      const serverOrderId = result.server_order_id;
+
+      let rzOrderResult;
+      try {
+        rzOrderResult = await createRazorpayOrder({
+          server_order_id: serverOrderId,
+          amount: total,
+          currency: currency === CURRENCY_DEFAULT ? 'INR' : currency,
+        });
+      } catch (rzErr: any) {
+        const rzMsg =
+          rzErr?.detail ?? rzErr?.message ?? 'Could not initiate payment with Razorpay.';
+        setOrderError(
+          `${rzMsg} No payment was charged. Please check your connection and try again.`,
+        );
+        try {
+          await updateOrderStatus({ server_order_id: serverOrderId, status: 'failed' });
+        } catch { /* best effort cleanup */ }
+        setSubmitting(false);
+        return;
+      }
+
+      razorpayContextRef.current = {
+        serverOrderId,
+        razorpayOrderId: rzOrderResult.razorpay_order_id,
+        receiptItems,
+        payment,
+      };
+
+      setSubmitting(false);
+      await openRazorpaySDK(rzOrderResult.razorpay_order_id);
+    } catch (e: any) {
+      const msg = e?.detail ?? e?.message ?? Strings.company.somethingWentWrongTryAgain;
+      setOrderError(msg);
+      setSubmitting(false);
+    }
+  }, [companyId, userId, items, total, currency, selectedCompany, useMockData, openRazorpaySDK]);
+
+  const handleRazorpayRetry = useCallback(() => {
+    const ctx = razorpayContextRef.current;
+    if (!ctx) {
+      setPaymentStatus(null);
+      return;
+    }
+    openRazorpaySDK(ctx.razorpayOrderId);
+  }, [openRazorpaySDK]);
+
+  const handleRetryVerify = useCallback(() => {
+    const ctx = razorpayContextRef.current;
+    if (!ctx?.sdkResult) {
+      setPaymentStatus(null);
+      return;
+    }
+    runVerification(ctx);
+  }, [runVerification]);
+
+  const handleRazorpayCancel = useCallback(async () => {
+    const ctx = razorpayContextRef.current;
+    const wasVerifyFailed = paymentStatus?.phase === 'verify_failed';
+
+    if (ctx && !wasVerifyFailed) {
+      try {
+        await updateOrderStatus({ server_order_id: ctx.serverOrderId, status: 'failed' });
+      } catch { /* best effort */ }
+    }
+
+    razorpayContextRef.current = null;
+    setPaymentStatus(null);
+
+    if (wasVerifyFailed) {
+      router.push(`/company/${companyId}/orders` as any);
+    }
+  }, [paymentStatus, router, companyId]);
+
   const handlePaymentChoice = useCallback(
-    (method: 'cash' | 'online') => {
+    (button: PaymentButtonToShowEnum) => {
+      if (button === CheckoutButton.SPLIT) {
+        setShowSplitInput(true);
+        setSplitCashInput('');
+        setSplitOnlineInput('');
+        return;
+      }
+      if (button === CheckoutButton.RAZORPAY) {
+        handleRazorpayPayment();
+        return;
+      }
       setShowPaymentChoice(false);
-      submitOrder(method);
+      submitOrder(button);
     },
-    [submitOrder]
+    [submitOrder, handleRazorpayPayment]
   );
 
-  const handleOnlinePG = useCallback(() => {
-    submitOrder('rz_pg');
-  }, [submitOrder]);
+  const handleSplitBack = useCallback(() => {
+    setShowSplitInput(false);
+    setSplitCashInput('');
+    setSplitOnlineInput('');
+  }, []);
 
-  /** For negative totals (refunds): complete order with cash, no payment choice popup. */
+  const handleSplitConfirm = useCallback(() => {
+    const cashRupees = parseFloat(splitCashInput || '0') || 0;
+    const onlineRupees = parseFloat(splitOnlineInput || '0') || 0;
+    const cash_share = Math.round(cashRupees * 100);
+    const online_share = Math.round(onlineRupees * 100);
+    const sum = cash_share + online_share;
+    if (sum !== total) {
+      toast.show({
+        type: 'error',
+        message: `Cash + Online must equal total (${formatPrice(total, currency)}).`,
+      });
+      return;
+    }
+    setShowSplitInput(false);
+    setShowPaymentChoice(false);
+    setSplitCashInput('');
+    setSplitOnlineInput('');
+    submitOrder(CheckoutButton.SPLIT, { cash_share, online_share });
+  }, [splitCashInput, splitOnlineInput, total, currency, submitOrder]);
+
+  /** Razorpay PG from bottom bar shortcut. */
+  const handleRazorpayPG = useCallback(() => {
+    handleRazorpayPayment();
+  }, [handleRazorpayPayment]);
+
+  /** For negative totals (refunds): complete with Cash (no payment choice popup). */
   const handleCompleteOrder = useCallback(() => {
-    submitOrder('cash');
+    submitOrder(CheckoutButton.CASH);
   }, [submitOrder]);
 
   const isRefund = total < 0;
@@ -372,7 +790,7 @@ export default function CheckoutScreen() {
 
               {showOnlinePG && (
                 <Pressable
-                  onPress={handleOnlinePG}
+                  onPress={handleRazorpayPG}
                   disabled={submitting || hasStockError}
                   style={[styles.optionBtn, { backgroundColor: colors.background, borderColor: colors.icon + '40' }]}
                 >
@@ -400,44 +818,169 @@ export default function CheckoutScreen() {
         visible={showPaymentChoice}
         animationType="fade"
         transparent
-        onRequestClose={() => !submitting && setShowPaymentChoice(false)}
+        onRequestClose={() => {
+          if (!submitting) {
+            setShowSplitInput(false);
+            setShowPaymentChoice(false);
+          }
+        }}
       >
-        <Pressable style={styles.modalBackdrop} onPress={() => setShowPaymentChoice(false)}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => {
+            if (!showSplitInput && !submitting) setShowPaymentChoice(false);
+          }}
+        >
           <View
             style={[styles.choiceModal, { backgroundColor: colors.background }]}
             onStartShouldSetResponder={() => true}
           >
-            <ThemedText type="subtitle" style={styles.choiceModalTitle}>
-              {Strings.company.collectPayment}
-            </ThemedText>
-            <ThemedText style={[styles.choiceModalHint, { color: colors.icon }]}>
-              {Strings.company.choosePaymentMethod}
-            </ThemedText>
-            <Pressable
-              onPress={() => handlePaymentChoice('cash')}
-              style={[styles.choiceBtn, { backgroundColor: colors.tint }]}
-            >
-              <IconSymbol name="banknote" size={22} color="#fff" />
-              <ThemedText style={styles.choiceBtnTextPrimary}>{Strings.company.cash}</ThemedText>
-            </Pressable>
-            <Pressable
-              onPress={() => handlePaymentChoice('online')}
-              style={[styles.choiceBtnOutlined, { borderColor: colors.icon + '40' }]}
-            >
-              <ThemedText style={{ color: colors.text }}>{Strings.company.online}</ThemedText>
-            </Pressable>
-            <Pressable
-              onPress={() => setShowPaymentChoice(false)}
-              style={[styles.choiceCancel, { borderColor: colors.icon + '40' }]}
-            >
-              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
-            </Pressable>
+            {showSplitInput ? (
+              <>
+                <ThemedText type="subtitle" style={styles.choiceModalTitle}>
+                  Split payment
+                </ThemedText>
+                <ThemedText style={[styles.choiceModalHint, { color: colors.icon }]}>
+                  Total: {formatPrice(total, currency)} — enter cash and online amounts
+                </ThemedText>
+                <TextInput
+                  style={[styles.splitInput, { backgroundColor: colors.background, borderColor: colors.icon + '40', color: colors.text }]}
+                  placeholder="Cash amount (₹)"
+                  placeholderTextColor={colors.icon}
+                  value={splitCashInput}
+                  onChangeText={setSplitCashInput}
+                  keyboardType="decimal-pad"
+                />
+                <TextInput
+                  style={[styles.splitInput, { backgroundColor: colors.background, borderColor: colors.icon + '40', color: colors.text }]}
+                  placeholder="Online amount (₹)"
+                  placeholderTextColor={colors.icon}
+                  value={splitOnlineInput}
+                  onChangeText={setSplitOnlineInput}
+                  keyboardType="decimal-pad"
+                />
+                <Pressable
+                  onPress={handleSplitConfirm}
+                  disabled={submitting}
+                  style={[styles.choiceBtn, { backgroundColor: colors.tint }]}
+                >
+                  <ThemedText style={styles.choiceBtnTextPrimary}>Confirm Payment</ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={handleSplitBack}
+                  style={[styles.choiceCancel, { borderColor: colors.icon + '40' }]}
+                >
+                  <ThemedText style={{ color: colors.icon }}>Back</ThemedText>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <ThemedText type="subtitle" style={styles.choiceModalTitle}>
+                  {Strings.company.collectPayment}
+                </ThemedText>
+                <ThemedText style={[styles.choiceModalHint, { color: colors.icon }]}>
+                  {Strings.company.choosePaymentMethod}
+                </ThemedText>
+                <Pressable
+                  onPress={() => handlePaymentChoice(CheckoutButton.CASH)}
+                  style={[styles.choiceBtnFilled, { backgroundColor: colors.tint }]}
+                >
+                  <IconSymbol name="banknote" size={22} color="#fff" />
+                  <ThemedText style={styles.choiceBtnTextWhite}>{Strings.company.cash}</ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => handlePaymentChoice(CheckoutButton.ONLINE)}
+                  style={[styles.choiceBtnFilled, { backgroundColor: PAYMENT_COLORS.online }]}
+                >
+                  <ThemedText style={styles.choiceBtnTextWhite}>{Strings.company.online}</ThemedText>
+                </Pressable>
+                <Pressable
+                  onPress={() => handlePaymentChoice(CheckoutButton.SPLIT)}
+                  style={[styles.choiceBtnFilled, { backgroundColor: PAYMENT_COLORS.split }]}
+                >
+                  <View style={styles.choiceBtnContent}>
+                    <ThemedText style={styles.choiceBtnTextWhite}>{CheckoutButton.SPLIT}</ThemedText>
+                    <ThemedText style={styles.choiceBtnSubtext}>(cash + UPI)</ThemedText>
+                  </View>
+                </Pressable>
+                {showOnlinePG && (
+                  <Pressable
+                    onPress={() => handlePaymentChoice(CheckoutButton.RAZORPAY)}
+                    style={[styles.choiceBtnFilled, { backgroundColor: PAYMENT_COLORS.razorpay }]}
+                  >
+                    <ThemedText style={styles.choiceBtnTextWhite}>{Strings.company.onlinePg}</ThemedText>
+                  </Pressable>
+                )}
+                <Pressable
+                  onPress={() => setShowPaymentChoice(false)}
+                  style={[styles.choiceCancel, { borderColor: colors.icon + '40' }]}
+                >
+                  <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
+                </Pressable>
+              </>
+            )}
           </View>
         </Pressable>
       </Modal>
+
+      <PaymentStatusOverlay
+        status={paymentStatus}
+        onRetry={handleRazorpayRetry}
+        onRetryVerify={handleRetryVerify}
+        onCancel={handleRazorpayCancel}
+        colors={colors}
+      />
     </ThemedView>
   );
 }
+
+const paymentStatusStyles = StyleSheet.create({
+  overlay: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  card: {
+    width: '80%',
+    maxWidth: 300,
+    borderRadius: 16,
+    padding: 28,
+    alignItems: 'center',
+    gap: 16,
+  },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  hint: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  retryBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 10,
+    marginTop: 4,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  cancelBtn: {
+    paddingVertical: 8,
+  },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
@@ -522,6 +1065,13 @@ const styles = StyleSheet.create({
   choiceModalTitle: {
     textAlign: 'center',
   },
+  splitInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+  },
   choiceModalHint: {
     fontSize: 14,
     textAlign: 'center',
@@ -535,10 +1085,32 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
   },
+  choiceBtnFilled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+  },
   choiceBtnTextPrimary: {
     fontSize: 16,
     fontWeight: '600',
     color: '#fff',
+  },
+  choiceBtnTextWhite: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  choiceBtnContent: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  choiceBtnSubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
   },
   choiceBtnOutlined: {
     paddingVertical: 14,

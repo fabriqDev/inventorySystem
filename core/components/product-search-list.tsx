@@ -17,6 +17,7 @@ import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { formatPrice } from '@/core/services/format';
+import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
 
 interface Props {
@@ -133,7 +134,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
           )}
           {showQuantity && item.quantity != null && (
             <ThemedText style={[styles.qty, { color: colors.icon }]}>
-              Qty: {item.quantity}
+              Qty: {getAvailableStock(item)}
             </ThemedText>
           )}
         </View>

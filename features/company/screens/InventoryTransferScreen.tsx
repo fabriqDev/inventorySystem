@@ -69,7 +69,7 @@ export default function InventoryTransferScreen() {
   useCompany();
   const { session } = useAuth();
   const { useMockData } = useDataSource();
-  const { refreshProducts } = useProductCache();
+  const { refreshProducts, adjustStock } = useProductCache();
   const userId = session?.user?.id ?? '';
 
   const [activeTab, setActiveTab] = useState<TabIndex>(0);
@@ -181,6 +181,17 @@ export default function InventoryTransferScreen() {
         },
         useMockData,
       );
+      // Transfer created: mark items as reserved for the source company.
+      // Only reserved increases — total stock (quantity) stays the same because
+      // available stock is computed via getAvailableStock (quantity - reserved).
+      adjustStock(
+        companyId,
+        transferItems.map((i) => ({
+          article_code: i.product.article_code,
+          quantity_delta: 0,
+          reserved_delta: i.quantity,
+        })),
+      );
       setTransferItems([]);
       setDestinationCompanyId(null);
       setActiveTab(1);
@@ -189,14 +200,25 @@ export default function InventoryTransferScreen() {
     } finally {
       if (mountedRef.current) setSubmitting(false);
     }
-  }, [companyId, destinationCompanyId, transferItems, useMockData, userId]);
+  }, [companyId, destinationCompanyId, transferItems, useMockData, userId, adjustStock]);
 
   const handleAccept = useCallback(
     async (transferId: string) => {
       setAcceptRejectLoading(transferId);
       try {
+        const transfer = pendingTransfers.find((t) => t.id === transferId);
         await acceptTransfer(transferId, useMockData);
-        if (companyId) refreshProducts(companyId);
+        // Transfer accepted: add incoming items to the destination (current) company's stock.
+        // Source company's reserved is not updated here — it refreshes on next TilesScreen visit.
+        if (companyId && transfer) {
+          adjustStock(
+            companyId,
+            transfer.items.map((i) => ({
+              article_code: i.article_code,
+              quantity_delta: i.quantity,
+            })),
+          );
+        }
         setPendingTransfers((prev) => prev.filter((t) => t.id !== transferId));
       } catch (_e) {
         // show error
@@ -204,7 +226,7 @@ export default function InventoryTransferScreen() {
         if (mountedRef.current) setAcceptRejectLoading(null);
       }
     },
-    [companyId, useMockData, refreshProducts],
+    [companyId, useMockData, pendingTransfers, adjustStock],
   );
 
   const handleReject = useCallback(
@@ -226,7 +248,21 @@ export default function InventoryTransferScreen() {
     async (transferId: string) => {
       setAcceptRejectLoading(transferId);
       try {
+        const transfer = pendingTransfers.find((t) => t.id === transferId);
         await cancelTransfer(transferId, useMockData);
+        // Transfer cancelled: release reserved items for the source company.
+        // Only reserved decreases — total stock (quantity) stays the same because
+        // available stock is computed via getAvailableStock (quantity - reserved).
+        if (companyId && transfer) {
+          adjustStock(
+            companyId,
+            transfer.items.map((i) => ({
+              article_code: i.article_code,
+              quantity_delta: 0,
+              reserved_delta: -i.quantity,
+            })),
+          );
+        }
         setPendingTransfers((prev) => prev.filter((t) => t.id !== transferId));
       } catch (_e) {
         // error shown via toast
@@ -234,7 +270,7 @@ export default function InventoryTransferScreen() {
         if (mountedRef.current) setAcceptRejectLoading(null);
       }
     },
-    [useMockData],
+    [companyId, useMockData, pendingTransfers, adjustStock],
   );
 
   const destinationCompany = transferableCompanies.find((c) => c.id === destinationCompanyId);

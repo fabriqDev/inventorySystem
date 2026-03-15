@@ -1,6 +1,6 @@
 import { CartTransactionType } from '@/core/types';
 import type { CompanyWithRole } from '@/core/types/company';
-import type { OrderStatus, OrderWithItems } from '@/core/types/order';
+import type { OrderStatusEnum, OrderWithItems, PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
 import type { Product, ProductListResponse } from '@/core/types/product';
 import type { InventoryTransfer } from '@/core/types/transfer';
 
@@ -29,7 +29,7 @@ export interface FetchProductsOptions {
 }
 
 export interface FetchOrdersOptions {
-  status?: OrderStatus | 'all';
+  status?: OrderStatusEnum | 'all';
 }
 
 
@@ -52,7 +52,12 @@ export interface CreateOrderInput {
   tax_amount: number;
   /** Total calculated on client (can be negative); sent to server. */
   total: number;
-  payment_method: string;
+  payment_type: PaymentTypeEnum;
+  payment_provider?: PaymentProviderEnum;
+  cash_share: number;
+  online_share: number;
+  /** Order status: 'success' for immediate payments, 'pending' for PG flows awaiting confirmation. */
+  status?: OrderStatusEnum;
   order_items: CreateOrderItemInput[];
 }
 
@@ -60,6 +65,33 @@ export interface CreateOrderResult {
   /** Server-generated order id. Use for receipt, print and display after order is successful. */
   server_order_id: string;
   total: number;
+}
+
+export interface CreateRazorpayOrderInput {
+  server_order_id: string;
+  amount: number;
+  currency: string;
+}
+
+export interface CreateRazorpayOrderResult {
+  razorpay_order_id: string;
+}
+
+export interface VerifyRazorpayPaymentInput {
+  server_order_id: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+export interface VerifyRazorpayPaymentResult {
+  success: boolean;
+  status: OrderStatusEnum;
+}
+
+export interface UpdateOrderStatusInput {
+  server_order_id: string;
+  status: OrderStatusEnum;
 }
 
 export interface CreateTransferItemInput {
@@ -88,6 +120,9 @@ export interface DataProvider {
   fetchProductByBarcode(companyId: string, barcode: string): Promise<Product | null>;
   fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<OrderWithItems[]>;
   createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null>;
+  createRazorpayOrder(input: CreateRazorpayOrderInput): Promise<CreateRazorpayOrderResult>;
+  verifyRazorpayPayment(input: VerifyRazorpayPaymentInput): Promise<VerifyRazorpayPaymentResult>;
+  updateOrderStatus(input: UpdateOrderStatusInput): Promise<void>;
   fetchPendingTransfers(companyId: string): Promise<InventoryTransfer[]>;
   fetchTransferHistory(companyId: string): Promise<InventoryTransfer[]>;
   createTransfer(input: CreateTransferInput): Promise<CreateTransferResult | null>;

@@ -1,4 +1,6 @@
-export function formatPrice(paise: number, currency: string = '₹'): string {
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
+
+export function formatPrice(paise: number, currency: string = CURRENCY_DEFAULT): string {
   return `${currency} ${(paise / 100).toFixed(2)}`;
 }
 

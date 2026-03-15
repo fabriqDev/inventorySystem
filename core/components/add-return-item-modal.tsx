@@ -24,7 +24,8 @@ import { isMobileOrTabletWeb } from '@/core/services/device';
 import type { Product } from '@/core/types/product';
 import type { CartTransactionType } from '@/core/types/cart';
 
-const CAMERA_HEIGHT_RATIO = 0.5;
+/** Scanner takes 1/3 of screen height and is centered; leaves room for header and search below. */
+const CAMERA_HEIGHT_RATIO = 1 / 3;
 
 interface Props {
   visible: boolean;
@@ -148,79 +149,97 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
 
           {!isWebDesktop && (
             <>
-            <View style={styles.upperHalf}>
-              <ThemedText style={[styles.hint, { color: colors.icon }]}>
-                Scan barcode below or tap search to pick a product.
-              </ThemedText>
-            </View>
+              {scanError ? (
+                <Pressable
+                  style={[styles.errorOverlay, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
+                  onPress={() => setScanError(null)}
+                >
+                  <Pressable
+                    style={[styles.errorPopup, { backgroundColor: colors.background, borderColor: colors.icon }]}
+                    onPress={(e) => e.stopPropagation()}
+                  >
+                    <View style={styles.errorIconWrap}>
+                      <MaterialIcons name="error-outline" size={40} color="#C62828" />
+                    </View>
+                    <ThemedText type="subtitle" style={styles.errorPopupTitle}>
+                      {scanError}
+                    </ThemedText>
+                    <ThemedText style={[styles.errorPopupHint, { color: colors.icon }]}>
+                      Try another barcode or search by name.
+                    </ThemedText>
+                    <Pressable
+                      onPress={() => setScanError(null)}
+                      style={[styles.errorPopupBtn, { backgroundColor: colors.tint }]}
+                    >
+                      <ThemedText style={styles.errorPopupBtnText}>OK</ThemedText>
+                    </Pressable>
+                  </Pressable>
+                </Pressable>
+              ) : null}
 
-          {scanError ? (
-            <Pressable
-              style={[styles.errorOverlay, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
-              onPress={() => setScanError(null)}
-            >
-              <Pressable
-                style={[styles.errorPopup, { backgroundColor: colors.background, borderColor: colors.icon }]}
-                onPress={(e) => e.stopPropagation()}
-              >
-                <View style={styles.errorIconWrap}>
-                  <MaterialIcons name="error-outline" size={40} color="#C62828" />
+              <View style={styles.scannerCenterWrap}>
+                <View style={[styles.cameraSection, { height: Dimensions.get('window').height * CAMERA_HEIGHT_RATIO }]}>
+                  {cameraAvailable ? (
+                    <CameraView
+                      style={StyleSheet.absoluteFill}
+                      facing="back"
+                      barcodeScannerSettings={{
+                        barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'code128', 'code39'],
+                      }}
+                      onBarcodeScanned={handleBarcodeScanResult}
+                    />
+                  ) : (
+                    <View style={[styles.fallback, { backgroundColor: colors.background }]}>
+                      <ThemedText style={[styles.fallbackLabel, { color: colors.icon }]}>
+                        Enter barcode
+                      </ThemedText>
+                      <TextInput
+                        style={[styles.barcodeInput, { color: colors.text, borderColor: colors.icon + '40' }]}
+                        placeholder="Type barcode…"
+                        placeholderTextColor={colors.icon}
+                        value={barcodeInput}
+                        onChangeText={(t) => { setBarcodeInput(t); setScanError(null); }}
+                        returnKeyType="search"
+                        onSubmitEditing={handleManualLookup}
+                      />
+                      <Pressable
+                        onPress={handleManualLookup}
+                        style={[styles.lookupBtn, { backgroundColor: colors.tint }]}
+                      >
+                        <ThemedText style={styles.lookupBtnText}>Look up</ThemedText>
+                      </Pressable>
+                      {!permission?.granted && (Platform.OS !== 'web' || showCameraOnWeb) && (
+                        <Pressable onPress={requestPermission} style={[styles.permBtn, { borderColor: colors.tint }]}>
+                          <ThemedText style={{ color: colors.tint }}>Grant camera access</ThemedText>
+                        </Pressable>
+                      )}
+                    </View>
+                  )}
                 </View>
-                <ThemedText type="subtitle" style={styles.errorPopupTitle}>
-                  {scanError}
-                </ThemedText>
-                <ThemedText style={[styles.errorPopupHint, { color: colors.icon }]}>
-                  Try another barcode or search by name.
+              </View>
+
+              <View style={[styles.belowScanner, { borderTopColor: colors.icon + '20' }]}>
+                <ThemedText style={[styles.hint, { color: colors.icon }]}>
+                  Scan barcode above or search to pick a product.
                 </ThemedText>
                 <Pressable
-                  onPress={() => setScanError(null)}
-                  style={[styles.errorPopupBtn, { backgroundColor: colors.tint }]}
+                  onPress={() => setSearchVisible(true)}
+                  style={[styles.searchBtnBelow, { backgroundColor: colors.tint }]}
                 >
-                  <ThemedText style={styles.errorPopupBtnText}>OK</ThemedText>
+                  <IconSymbol name="magnifyingglass" size={22} color="#fff" />
+                  <ThemedText style={styles.searchBtnBelowText}>Search</ThemedText>
                 </Pressable>
-              </Pressable>
-            </Pressable>
-          ) : null}
-
-          <View style={[styles.cameraSection, { height: Dimensions.get('window').height * CAMERA_HEIGHT_RATIO }]}>
-            {cameraAvailable ? (
-              <CameraView
-                style={StyleSheet.absoluteFill}
-                facing="back"
-                barcodeScannerSettings={{
-                  barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'qr', 'code128', 'code39'],
-                }}
-                onBarcodeScanned={handleBarcodeScanResult}
-              />
-            ) : (
-              <View style={[styles.fallback, { backgroundColor: colors.background }]}>
-                <ThemedText style={[styles.fallbackLabel, { color: colors.icon }]}>
-                  Enter barcode
-                </ThemedText>
                 <TextInput
-                  style={[styles.barcodeInput, { color: colors.text, borderColor: colors.icon + '40' }]}
-                  placeholder="Type barcode…"
+                  style={[styles.barcodeInputInline, { color: colors.text, borderColor: colors.icon + '40' }]}
+                  placeholder="Or type barcode…"
                   placeholderTextColor={colors.icon}
                   value={barcodeInput}
                   onChangeText={(t) => { setBarcodeInput(t); setScanError(null); }}
                   returnKeyType="search"
                   onSubmitEditing={handleManualLookup}
                 />
-                <Pressable
-                  onPress={handleManualLookup}
-                  style={[styles.lookupBtn, { backgroundColor: colors.tint }]}
-                >
-                  <ThemedText style={styles.lookupBtnText}>Look up</ThemedText>
-                </Pressable>
-                {!permission?.granted && (Platform.OS !== 'web' || showCameraOnWeb) && (
-                  <Pressable onPress={requestPermission} style={[styles.permBtn, { borderColor: colors.tint }]}>
-                    <ThemedText style={{ color: colors.tint }}>Grant camera access</ThemedText>
-                  </Pressable>
-                )}
               </View>
-            )}
-          </View>
-          </>
+            </>
           )}
         </ThemedView>
       </Modal>
@@ -250,17 +269,40 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  upperHalf: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 8,
+  /** Centers the scanner in the middle of the screen (1/3 height). */
+  scannerCenterWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   hint: { fontSize: 14 },
+  belowScanner: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingBottom: 24,
+    gap: 12,
+    borderTopWidth: 1,
+  },
+  searchBtnBelow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  searchBtnBelowText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  barcodeInputInline: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+  },
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 10,
+    zIndex: 20,
   },
   errorPopup: {
     marginHorizontal: 24,

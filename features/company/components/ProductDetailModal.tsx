@@ -6,6 +6,7 @@ import { Colors } from '@/core/constants/theme';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice } from '@/core/services/format';
 import { Strings } from '@/core/strings';
+import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
 
 interface ProductDetailModalProps {
@@ -23,7 +24,7 @@ export function ProductDetailModal({ product, visible, onClose }: ProductDetailM
 
   const quantity = product.quantity ?? 0;
   const reserved = product.reserved ?? 0;
-  const available = Math.max(0, quantity - reserved);
+  const available = getAvailableStock(product);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>

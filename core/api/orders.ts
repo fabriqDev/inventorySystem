@@ -1,10 +1,18 @@
 import { backend } from '@/core/backend';
-import type { CreateOrderInput, CreateOrderResult } from '@/core/backend/types';
+import type {
+  CreateOrderInput,
+  CreateOrderResult,
+  CreateRazorpayOrderInput,
+  CreateRazorpayOrderResult,
+  UpdateOrderStatusInput,
+  VerifyRazorpayPaymentInput,
+  VerifyRazorpayPaymentResult,
+} from '@/core/backend/types';
 import { createMockOrder, getMockOrders } from '@/core/services/mock-data';
-import type { OrderStatus, OrderWithItems } from '@/core/types/order';
+import type { OrderStatusEnum, OrderWithItems } from '@/core/types/order';
 
 interface FetchOrdersOptions {
-  status?: OrderStatus | 'all';
+  status?: OrderStatusEnum | 'all';
 }
 
 export async function fetchOrders(
@@ -22,6 +30,24 @@ export async function createOrder(
 ): Promise<CreateOrderResult | null> {
   if (useMock) return createMockOrder(input);
   return backend.data.createOrder(input);
+}
+
+export async function createRazorpayOrder(
+  input: CreateRazorpayOrderInput,
+): Promise<CreateRazorpayOrderResult> {
+  return backend.data.createRazorpayOrder(input);
+}
+
+export async function verifyRazorpayPayment(
+  input: VerifyRazorpayPaymentInput,
+): Promise<VerifyRazorpayPaymentResult> {
+  return backend.data.verifyRazorpayPayment(input);
+}
+
+export async function updateOrderStatus(
+  input: UpdateOrderStatusInput,
+): Promise<void> {
+  return backend.data.updateOrderStatus(input);
 }
 
 async function mockFetchOrders(

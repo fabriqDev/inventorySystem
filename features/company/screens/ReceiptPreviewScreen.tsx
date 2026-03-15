@@ -12,6 +12,7 @@ import { PrinterSelectModal } from '@/core/components/printer-select-modal';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice } from '@/core/services/format';
@@ -25,6 +26,8 @@ import {
 } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
+import { getPaymentDisplayKey, PaymentProvider, PaymentType, toPaymentMethodValue } from '@/core/types/order';
+import type { PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
 
 const SELLER_NAME = Strings.company.sellerName;
 
@@ -41,10 +44,9 @@ function parseItemsJson(itemsJson: string | undefined): ReceiptLineItem[] {
   }
 }
 
-function paymentMethodLabel(method: string): string {
-  if (method === 'rz_pg') return Strings.company.onlinePg;
-  if (method === 'online') return Strings.company.online;
-  return Strings.company.cash;
+function paymentMethodLabel(payment_type: PaymentTypeEnum, payment_provider: PaymentProviderEnum): string {
+  const key = getPaymentDisplayKey({ payment_type, payment_provider });
+  return Strings.company[key];
 }
 
 export default function ReceiptPreviewScreen() {
@@ -56,15 +58,18 @@ export default function ReceiptPreviewScreen() {
     id: string;
     orderId: string;
     total: string;
-    paymentMethod: string;
+    payment_type?: PaymentTypeEnum;
+    payment_provider?: string;
     itemsJson?: string;
     currency?: string;
   }>();
 
   const orderId = params.orderId ?? '';
   const total = Number(params.total) || 0;
-  const paymentMethod = params.paymentMethod ?? 'cash';
-  const currency = params.currency ?? '₹';
+  const payment_type = params.payment_type ?? PaymentType.CASH;
+  const payment_provider = (params.payment_provider as PaymentProviderEnum) ?? PaymentProvider.NONE;
+  const paymentMethod = toPaymentMethodValue({ payment_type, payment_provider, cash_share: 0, online_share: 0 });
+  const currency = params.currency ?? CURRENCY_DEFAULT;
   const items = parseItemsJson(params.itemsJson);
 
   const [savedPrinter, setSavedPrinter] = useState<PrinterDevice | null>(null);
@@ -184,7 +189,7 @@ export default function ReceiptPreviewScreen() {
             <ThemedText type="subtitle">{formatPrice(total, currency)}</ThemedText>
           </View>
           <ThemedText style={[styles.paymentRow, { color: colors.icon }]}>
-            {Strings.company.payment}: {paymentMethodLabel(paymentMethod)}
+            {Strings.company.payment}: {paymentMethodLabel(payment_type, payment_provider)}
           </ThemedText>
         </View>
       </ScrollView>

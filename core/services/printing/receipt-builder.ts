@@ -8,8 +8,10 @@
  */
 
 import type { CreateOrderResult } from '@/core/backend/types';
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Strings } from '@/core/strings';
 import type { OrderWithItems } from '@/core/types/order';
+import { CheckoutButton, PAYMENT_CHECKOUT_MAP, toPaymentMethodValue } from '@/core/types/order';
 
 const SELLER_NAME = 'FabrIQ';
 
@@ -137,7 +139,12 @@ export function orderToReceiptData(order: OrderWithItems): ReceiptData {
     })),
     subtotal: order.subtotal,
     total: order.total,
-    paymentMethod: order.payment_method,
+    paymentMethod: toPaymentMethodValue({
+      payment_type: order.payment_type,
+      payment_provider: order.payment_provider,
+      cash_share: order.cash_share,
+      online_share: order.online_share,
+    }),
     isRefund: order.total < 0,
     currency: order.currency,
   };
@@ -153,7 +160,7 @@ export function checkoutResultToReceiptData(
   options?: { isRefund?: boolean; currency?: string }
 ): ReceiptData {
   const isRefund = options?.isRefund ?? false;
-  const currency = options?.currency ?? '₹';
+  const currency = options?.currency ?? CURRENCY_DEFAULT;
   return {
     orderId: result.server_order_id,
     createdAt: new Date().toISOString(),
@@ -185,8 +192,8 @@ export function getMockReceiptData(): ReceiptData {
     ],
     subtotal: 12500,
     total: 12500,
-    paymentMethod: 'cash',
+    paymentMethod: toPaymentMethodValue({ ...PAYMENT_CHECKOUT_MAP[CheckoutButton.CASH], cash_share: 0, online_share: 0 }),
     isRefund: false,
-    currency: '₹',
+    currency: CURRENCY_DEFAULT,
   };
 }

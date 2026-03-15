@@ -20,6 +20,11 @@ export interface Product {
   created_at?: string;
 }
 
+/** Available stock = total stock minus reserved. Use this everywhere instead of inline math. */
+export function getAvailableStock(product: Pick<Product, 'quantity' | 'reserved'>): number {
+  return Math.max(0, (product.quantity ?? 0) - (product.reserved ?? 0));
+}
+
 export interface ProductListResponse {
   products: Product[];
   total?: number;

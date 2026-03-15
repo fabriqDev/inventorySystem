@@ -14,15 +14,17 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
+import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { fetchOrders } from '@/core/api/orders';
 import { formatDate, formatPrice, truncateId } from '@/core/services/format';
-import type { OrderStatus, OrderWithItems } from '@/core/types/order';
+import type { OrderStatusEnum, OrderWithItems } from '@/core/types/order';
+import { getPaymentDisplayKey, fromPaymentMethodValue } from '@/core/types/order';
 import { Strings } from '@/core/strings';
 
-type FilterValue = OrderStatus | 'all' | 'refund';
+type FilterValue = OrderStatusEnum | 'all' | 'refund';
 
 const FILTERS: { label: string; value: FilterValue }[] = [
   { label: Strings.company.all, value: 'all' },
@@ -33,7 +35,7 @@ const FILTERS: { label: string; value: FilterValue }[] = [
 ];
 
 const STATUS_STYLE: Record<
-  OrderStatus,
+  OrderStatusEnum,
   { bg: string; fg: string; icon: Parameters<typeof IconSymbol>[0]['name'] }
 > = {
   success: { bg: '#E8F5E9', fg: '#2E7D32', icon: 'checkmark.circle.fill' },
@@ -43,10 +45,9 @@ const STATUS_STYLE: Record<
 
 const ORDER_ID_DISPLAY_LEN = 16;
 
-function paymentMethodLabel(method: string): string {
-  if (method === 'rz_pg') return Strings.company.onlinePg;
-  if (method === 'online') return Strings.company.online;
-  return Strings.company.cash;
+function paymentLabelForOrder(order: { payment_type: OrderWithItems['payment_type']; payment_provider: OrderWithItems['payment_provider'] }): string {
+  const key = getPaymentDisplayKey(order);
+  return Strings.company[key];
 }
 
 export default function OrdersScreen() {
@@ -87,7 +88,7 @@ export default function OrdersScreen() {
     return successful.reduce((sum, o) => sum + o.total, 0);
   }, [orders]);
 
-  const currency = orders[0]?.currency ?? '₹';
+  const currency = orders[0]?.currency ?? CURRENCY_DEFAULT;
 
   const renderOrder = useCallback(
     ({ item }: { item: OrderWithItems }) => {
@@ -115,7 +116,7 @@ export default function OrdersScreen() {
                 {formatDate(item.created_at)} ·{' '}
               </ThemedText>
               <ThemedText style={[styles.paymentMethodBold, { color: colors.icon }]}>
-                {paymentMethodLabel(item.payment_method)}
+                {paymentLabelForOrder(item)}
               </ThemedText>
             </View>
             <ThemedText
@@ -177,7 +178,7 @@ export default function OrdersScreen() {
       ) : (
         <FlatList
           data={filteredOrders}
-          keyExtractor={(item) => item.server_order_id ?? item.client_order_id ?? ''}
+          keyExtractor={(item) => item.server_order_id ?? ''}
           renderItem={renderOrder}
           contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -206,7 +207,7 @@ export default function OrdersScreen() {
               showsVerticalScrollIndicator={false}
             >
               <ThemedText style={[styles.detailRow, { color: colors.icon }]}>
-                #{selectedOrder.server_order_id ?? selectedOrder.client_order_id ?? '—'}
+                #{selectedOrder.server_order_id ?? '—'}
               </ThemedText>
               <ThemedText style={[styles.detailRow, { color: colors.text }]}>
                 {formatDate(selectedOrder.created_at)}
@@ -222,7 +223,7 @@ export default function OrdersScreen() {
               </View>
               <ThemedText style={[styles.detailRow, { color: colors.text }]}>
                 <ThemedText style={{ color: colors.icon }}>Payment: </ThemedText>
-                <ThemedText style={{ fontWeight: '600' }}>{paymentMethodLabel(selectedOrder.payment_method)}</ThemedText>
+                <ThemedText style={{ fontWeight: '600' }}>{paymentLabelForOrder(selectedOrder)}</ThemedText>
               </ThemedText>
               <View style={[styles.detailDivider, { backgroundColor: colors.icon + '20' }]} />
               {(selectedOrder.items ?? []).map((line, idx) => (
