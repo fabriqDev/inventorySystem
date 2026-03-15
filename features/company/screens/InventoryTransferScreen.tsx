@@ -5,6 +5,7 @@ import {
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   View,
@@ -84,6 +85,7 @@ export default function InventoryTransferScreen() {
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [acceptRejectLoading, setAcceptRejectLoading] = useState<string | null>(null);
+  const [detailTransfer, setDetailTransfer] = useState<InventoryTransfer | null>(null);
   const mountedRef = useRef(true);
 
   const transferableCompanies = companies.length
@@ -412,7 +414,14 @@ export default function InventoryTransferScreen() {
           const loading = acceptRejectLoading === item.id;
           const isOutgoing = item.source_company_id === companyId;
           return (
-            <View style={[styles.requestCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
+            <Pressable
+              onPress={() => setDetailTransfer(item)}
+              style={({ pressed }) => [
+                styles.requestCard,
+                { backgroundColor: colors.background, borderColor: colors.icon + '25' },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <View style={styles.requestCardTop}>
                 <ThemedText type="defaultSemiBold">
                   {isOutgoing ? `To: ${item.destination_company_name}` : `From: ${item.source_company_name}`}
@@ -457,7 +466,7 @@ export default function InventoryTransferScreen() {
                   </>
                 )}
               </View>
-            </View>
+            </Pressable>
           );
         }}
         contentContainerStyle={[styles.listContent, { paddingBottom: 24 + insets.bottom }]}
@@ -490,7 +499,14 @@ export default function InventoryTransferScreen() {
           const s = STATUS_STYLE[item.status];
           const isOutgoing = item.source_company_id === companyId;
           return (
-            <View style={[styles.historyCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
+            <Pressable
+              onPress={() => setDetailTransfer(item)}
+              style={({ pressed }) => [
+                styles.historyCard,
+                { backgroundColor: colors.background, borderColor: colors.icon + '25' },
+                pressed && { opacity: 0.7 },
+              ]}
+            >
               <View style={styles.historyCardTop}>
                 <ThemedText type="defaultSemiBold" numberOfLines={1}>
                   {isOutgoing ? `To: ${item.destination_company_name}` : `From: ${item.source_company_name}`}
@@ -503,7 +519,7 @@ export default function InventoryTransferScreen() {
               <ThemedText style={[styles.dateText, { color: colors.icon }]}>
                 {formatDate(item.created_at)} · {item.items.length} item(s)
               </ThemedText>
-            </View>
+            </Pressable>
           );
         }}
         contentContainerStyle={[styles.listContent, { paddingBottom: 24 + insets.bottom }]}
@@ -581,6 +597,85 @@ export default function InventoryTransferScreen() {
             contentContainerStyle={styles.companyList}
           />
         </ThemedView>
+      </Modal>
+
+      <Modal visible={detailTransfer !== null} animationType="slide" onRequestClose={() => setDetailTransfer(null)}>
+        {detailTransfer && (() => {
+          const dt = detailTransfer;
+          const s = STATUS_STYLE[dt.status];
+          const isOutgoing = dt.source_company_id === companyId;
+          return (
+            <ThemedView style={[styles.modalFull, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: colors.icon + '20' }]}>
+                <ThemedText type="subtitle">Transfer Details</ThemedText>
+                <Pressable onPress={() => setDetailTransfer(null)} hitSlop={12}>
+                  <IconSymbol name="xmark" size={22} color={colors.text} />
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.detailRow}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>From</ThemedText>
+                  <ThemedText type="defaultSemiBold">{dt.source_company_name ?? dt.source_company_id}</ThemedText>
+                </View>
+                <View style={styles.detailRow}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>To</ThemedText>
+                  <ThemedText type="defaultSemiBold">{dt.destination_company_name ?? dt.destination_company_id}</ThemedText>
+                </View>
+                <View style={styles.detailRow}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>Status</ThemedText>
+                  <View style={[styles.statusBadge, { backgroundColor: s.bg }]}>
+                    <IconSymbol name={s.icon} size={12} color={s.fg} />
+                    <ThemedText style={[styles.statusText, { color: s.fg }]}>{dt.status}</ThemedText>
+                  </View>
+                </View>
+                <View style={styles.detailRow}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>Date</ThemedText>
+                  <ThemedText>{formatDate(dt.created_at)}</ThemedText>
+                </View>
+                {dt.created_by_user?.display_name && (
+                  <View style={styles.detailRow}>
+                    <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>Created by</ThemedText>
+                    <ThemedText>{dt.created_by_user.display_name}</ThemedText>
+                  </View>
+                )}
+                {dt.notes && (
+                  <View style={styles.detailRow}>
+                    <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>Notes</ThemedText>
+                    <ThemedText style={styles.detailNotes}>{dt.notes}</ThemedText>
+                  </View>
+                )}
+
+                <View style={[styles.detailDivider, { backgroundColor: colors.icon + '20' }]} />
+
+                <ThemedText type="defaultSemiBold" style={styles.detailItemsTitle}>
+                  Items ({dt.items.length})
+                </ThemedText>
+                {dt.items.map((ti, idx) => (
+                  <View
+                    key={ti.article_code + idx}
+                    style={[styles.detailItemCard, { backgroundColor: colors.icon + '08', borderColor: colors.icon + '20' }]}
+                  >
+                    <View style={styles.detailItemBody}>
+                      <ThemedText type="defaultSemiBold" numberOfLines={1}>
+                        {ti.product_name ?? ti.article_code}
+                      </ThemedText>
+                      {ti.product_name && (
+                        <ThemedText style={[styles.detailItemCode, { color: colors.icon }]}>
+                          Code: {ti.article_code}
+                        </ThemedText>
+                      )}
+                    </View>
+                    <View style={[styles.detailQtyBadge, { backgroundColor: colors.tint + '15' }]}>
+                      <ThemedText style={[styles.detailQtyText, { color: colors.tint }]}>
+                        x{ti.quantity}
+                      </ThemedText>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </ThemedView>
+          );
+        })()}
       </Modal>
     </ThemedView>
   );
@@ -721,4 +816,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   companyList: { paddingBottom: 24 },
+  detailContent: { padding: 20, paddingBottom: 40 },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  detailLabel: { fontSize: 14 },
+  detailNotes: { flex: 1, textAlign: 'right', marginLeft: 16 },
+  detailDivider: { height: 1, marginVertical: 16 },
+  detailItemsTitle: { marginBottom: 12 },
+  detailItemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  detailItemBody: { flex: 1, gap: 2 },
+  detailItemCode: { fontSize: 12 },
+  detailQtyBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  detailQtyText: { fontSize: 14, fontWeight: '700' },
 });

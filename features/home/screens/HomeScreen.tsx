@@ -23,6 +23,7 @@ import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { fetchCompanies } from '@/core/api/companies';
 import type { CompanyWithRole } from '@/core/types/company';
 import { CompanyCard } from '@/features/home/components/CompanyCard';
+import { DEV_EMAILS } from '@/core/constants/dev';
 import { Strings } from '@/core/strings';
 
 export default function HomeScreen() {
@@ -34,6 +35,8 @@ export default function HomeScreen() {
   const { setSelectedCompany } = useCompany();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+
+  const isDev = DEV_EMAILS.has(session?.user?.email ?? '');
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [companies, setCompanies] = useState<CompanyWithRole[]>([]);
@@ -154,39 +157,43 @@ export default function HomeScreen() {
               </>
             )}
 
-            <Pressable
-              onPress={toggleTheme}
-              style={({ pressed }) => [
-                styles.menuItem,
-                pressed && { opacity: 0.6 },
-              ]}
-            >
-              <IconSymbol
-                name={isDark ? 'sun.max.fill' : 'moon.fill'}
-                size={22}
-                color={colors.text}
-              />
-              <ThemedText style={styles.menuItemText}>
-                {isDark ? Strings.common.lightMode : Strings.common.darkMode}
-              </ThemedText>
-            </Pressable>
+            {isDev && (
+              <>
+                <Pressable
+                  onPress={toggleTheme}
+                  style={({ pressed }) => [
+                    styles.menuItem,
+                    pressed && { opacity: 0.6 },
+                  ]}
+                >
+                  <IconSymbol
+                    name={isDark ? 'sun.max.fill' : 'moon.fill'}
+                    size={22}
+                    color={colors.text}
+                  />
+                  <ThemedText style={styles.menuItemText}>
+                    {isDark ? Strings.common.lightMode : Strings.common.darkMode}
+                  </ThemedText>
+                </Pressable>
 
-            <View style={[styles.menuDivider, { backgroundColor: colors.icon + '25' }]} />
+                <View style={[styles.menuDivider, { backgroundColor: colors.icon + '25' }]} />
 
-            <View style={styles.menuItem}>
-              <IconSymbol name="cloud.fill" size={22} color={colors.text} />
-              <ThemedText style={[styles.menuItemText, { flex: 1 }]}>
-                {useMockData ? Strings.common.mockData : Strings.common.liveData}
-              </ThemedText>
-              <Switch
-                value={useMockData}
-                onValueChange={toggleDataSource}
-                trackColor={{ false: colors.icon + '30', true: colors.tint + '60' }}
-                thumbColor={useMockData ? colors.tint : '#f4f3f4'}
-              />
-            </View>
+                <View style={styles.menuItem}>
+                  <IconSymbol name="cloud.fill" size={22} color={colors.text} />
+                  <ThemedText style={[styles.menuItemText, { flex: 1 }]}>
+                    {useMockData ? Strings.common.mockData : Strings.common.liveData}
+                  </ThemedText>
+                  <Switch
+                    value={useMockData}
+                    onValueChange={toggleDataSource}
+                    trackColor={{ false: colors.icon + '30', true: colors.tint + '60' }}
+                    thumbColor={useMockData ? colors.tint : '#f4f3f4'}
+                  />
+                </View>
 
-            <View style={[styles.menuDivider, { backgroundColor: colors.icon + '25' }]} />
+                <View style={[styles.menuDivider, { backgroundColor: colors.icon + '25' }]} />
+              </>
+            )}
 
             <Pressable
               onPress={handleLogout}
