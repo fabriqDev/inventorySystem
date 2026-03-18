@@ -86,8 +86,9 @@ export const DEFAULT_PAYMENT_METHOD_VALUE = toPaymentMethodValue({
 });
 
 /** Get display label for payment (use with Strings or pass labels map). */
-export function getPaymentDisplayKey(p: { payment_type: PaymentTypeEnum; payment_provider: PaymentProviderEnum }): 'cash' | 'online' | 'onlinePg' {
+export function getPaymentDisplayKey(p: { payment_type: PaymentTypeEnum; payment_provider: PaymentProviderEnum }): 'cash' | 'online' | 'onlinePg' | 'split' {
   if (p.payment_provider === PaymentProvider.RAZORPAY) return 'onlinePg';
+  if (p.payment_type === PaymentType.SPLIT) return 'split';
   if (p.payment_type === PaymentType.ONLINE) return 'online';
   return 'cash';
 }

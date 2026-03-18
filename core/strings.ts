@@ -75,6 +75,7 @@ export const Strings = {
     cash: 'Cash',
     online: 'Online',
     onlinePg: 'Online (PG)',
+    split: 'Split',
     completeOrder: 'Complete Order',
     reviewAndCollect: 'Review items & collect payment',
     completeRefundOrder: 'Complete this refund order',

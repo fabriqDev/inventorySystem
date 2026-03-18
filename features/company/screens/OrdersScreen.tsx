@@ -21,7 +21,7 @@ import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { fetchOrders } from '@/core/api/orders';
 import { formatDate, formatPrice, truncateId } from '@/core/services/format';
 import type { OrderStatusEnum, OrderWithItems } from '@/core/types/order';
-import { getPaymentDisplayKey, fromPaymentMethodValue } from '@/core/types/order';
+import { getPaymentDisplayKey, fromPaymentMethodValue, PaymentType } from '@/core/types/order';
 import { Strings } from '@/core/strings';
 
 type FilterValue = OrderStatusEnum | 'all' | 'refund';
@@ -225,6 +225,16 @@ export default function OrdersScreen() {
                 <ThemedText style={{ color: colors.icon }}>Payment: </ThemedText>
                 <ThemedText style={{ fontWeight: '600' }}>{paymentLabelForOrder(selectedOrder)}</ThemedText>
               </ThemedText>
+              {selectedOrder.payment_type === PaymentType.SPLIT && (
+                <View style={styles.splitShareRow}>
+                  <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
+                    Cash: {formatPrice(selectedOrder.cash_share, selectedOrder.currency)}
+                  </ThemedText>
+                  <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
+                    Online: {formatPrice(selectedOrder.online_share, selectedOrder.currency)}
+                  </ThemedText>
+                </View>
+              )}
               <View style={[styles.detailDivider, { backgroundColor: colors.icon + '20' }]} />
               {(selectedOrder.items ?? []).map((line, idx) => (
                 <View key={idx} style={[styles.detailItemRow, { borderBottomColor: colors.icon + '15' }]}>
@@ -339,5 +349,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 8,
+  },
+  splitShareRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 4,
   },
 });
