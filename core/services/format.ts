@@ -1,7 +1,21 @@
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 
-export function formatPrice(paise: number, currency: string = CURRENCY_DEFAULT): string {
-  return `${currency} ${(paise / 100).toFixed(2)}`;
+const DECIMAL_PLACES = 2;
+const MULTIPLIER = Math.pow(10, DECIMAL_PLACES);
+
+/** Round a monetary value to 2 decimal places. Use for all rupee calculations. */
+export function roundMoney(value: number): number {
+  return Math.round(value * MULTIPLIER) / MULTIPLIER;
+}
+
+/** Format a numeric amount as a decimal string (e.g. 4.5 → "4.50"). No currency symbol. */
+export function formatAmount(value: number): string {
+  return roundMoney(value).toFixed(DECIMAL_PLACES);
+}
+
+/** Format a price with currency symbol (e.g. 4.5 → "₹ 4.50"). */
+export function formatPrice(amount: number, currency: string = CURRENCY_DEFAULT): string {
+  return `${currency} ${formatAmount(amount)}`;
 }
 
 export function formatDate(isoString: string): string {

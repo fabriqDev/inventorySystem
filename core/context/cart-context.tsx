@@ -1,4 +1,5 @@
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
+import { roundMoney } from '@/core/services/format';
 import type { CartItem, CartTransactionType } from '@/core/types/cart';
 import type { Product } from '@/core/types/product';
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
@@ -80,9 +81,11 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const total = useMemo(
     () =>
-      items.reduce(
-        (sum, i) => sum + i.unit_price * i.quantity * (i.transactionType === 'refund' ? -1 : 1),
-        0,
+      roundMoney(
+        items.reduce(
+          (sum, i) => sum + i.unit_price * i.quantity * (i.transactionType === 'refund' ? -1 : 1),
+          0,
+        ),
       ),
     [items],
   );

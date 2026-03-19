@@ -72,8 +72,8 @@ ALTER TABLE order_history
 |--------|------|-------------|
 | `payment_type` | `text` | `'cash'`, `'online'`, or `'split'` |
 | `payment_provider` | `text` | `'none'`, `'rz_pg'`, `'pe_pg'`, `'generic_upi'` |
-| `cash_share` | `integer` | Amount in paise paid via cash |
-| `online_share` | `integer` | Amount in paise paid online/PG |
+| `cash_share` | `numeric` | Amount in rupees paid via cash |
+| `online_share` | `numeric` | Amount in rupees paid online/PG |
 | `razorpay_order_id` | `text` | Razorpay `order_xxxxx` ID (set after Razorpay order creation) |
 | `razorpay_payment_id` | `text` | Razorpay `pay_xxxxx` ID (set after payment verification) |
 | `status` | `text` | `'pending'` → `'success'` or `'failed'` |
@@ -187,7 +187,7 @@ export default async function handler(req, res) {
   });
 
   const rzOrder = await razorpay.orders.create({
-    amount: amount,           // already in paise from client
+    amount: Math.round(amount * 100), // convert rupees to paise for Razorpay API
     currency: currency,
     receipt: server_order_id, // link back to our order
     notes: {
@@ -207,7 +207,7 @@ export default async function handler(req, res) {
 ```
 
 **Key points**:
-- `amount` is already in **paise** (smallest currency unit) — the client sends it this way
+- `amount` is in **rupees** from the client — the backend must convert to **paise** (`amount * 100`) before calling Razorpay API
 - Store `razorpay_order_id` on the `order_history` row immediately
 - Validate that the order exists and is in `pending` status before creating a Razorpay order
 

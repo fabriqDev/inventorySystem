@@ -50,21 +50,22 @@ export const PAYMENT_CHECKOUT_MAP: Record<PaymentButtonToShowEnum, Pick<OrderPay
 
 /**
  * Compute OrderPayment with correct cash_share and online_share for checkout.
+ * All amounts are in rupees (e.g. 4.50 = ₹4.50).
  * - Cash: cash_share = total, online_share = 0.
  * - Online / Razorpay: cash_share = 0, online_share = total.
  * - Split: use user-entered splitAmounts (cash_share, online_share); must sum to total.
  */
 export function getOrderPaymentForCheckout(
   button: PaymentButtonToShowEnum,
-  totalInPaise: number,
+  total: number,
   splitAmounts?: { cash_share: number; online_share: number }
 ): OrderPayment {
   const base = PAYMENT_CHECKOUT_MAP[button];
   if (button === CheckoutButton.CASH) {
-    return { ...base, cash_share: totalInPaise, online_share: 0 };
+    return { ...base, cash_share: total, online_share: 0 };
   }
   if (button === CheckoutButton.ONLINE || button === CheckoutButton.RAZORPAY) {
-    return { ...base, cash_share: 0, online_share: totalInPaise };
+    return { ...base, cash_share: 0, online_share: total };
   }
   if (button === CheckoutButton.SPLIT && splitAmounts) {
     return { ...base, cash_share: splitAmounts.cash_share, online_share: splitAmounts.online_share };

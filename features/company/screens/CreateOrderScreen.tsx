@@ -10,7 +10,7 @@ import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { formatPrice } from '@/core/services/format';
+import { formatPrice, roundMoney } from '@/core/services/format';
 import type { CartItem, CartTransactionType } from '@/core/types/cart';
 import { Strings } from '@/core/strings';
 
@@ -43,7 +43,7 @@ export default function CreateOrderScreen() {
   const renderCartItem = useCallback(
     ({ item }: { item: CartItem }) => {
       const isRefund = item.transactionType === 'refund';
-      const lineTotal = item.unit_price * item.quantity * (isRefund ? -1 : 1);
+      const lineTotal = roundMoney(item.unit_price * item.quantity * (isRefund ? -1 : 1));
       return (
         <View style={[styles.cartCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
           <View style={styles.cartBody}>

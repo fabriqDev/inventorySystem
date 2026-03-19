@@ -2,13 +2,15 @@
  * Builds ESC/POS-style receipt text with simple tags for thermal printers
  * (e.g. <C> center, <B> bold). Seller name is static: Fabriq.
  *
- * Thermal printers often use limited code pages; we use "Rs." instead of ₹
- * so the currency symbol prints reliably. Left margin is applied to all
- * lines so the bill is not flush to the paper edge.
+ * IMPORTANT — thermal printers use limited code pages (typically CP437).
+ * All text MUST be pure ASCII. Never use Unicode characters like ₹, …, –,
+ * curly quotes, etc. — they will print as garbage (Chinese/Japanese glyphs).
+ * Use "Rs." for currency and "..." for ellipsis.
  */
 
 import type { CreateOrderResult } from '@/core/backend/types';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
+import { formatAmount } from '@/core/services/format';
 import { Strings } from '@/core/strings';
 import type { OrderWithItems } from '@/core/types/order';
 import { CheckoutButton, PAYMENT_CHECKOUT_MAP, toPaymentMethodValue } from '@/core/types/order';
@@ -47,9 +49,14 @@ export interface ReceiptData {
   currency?: string;
 }
 
-/** Format amount for receipt (paise to display string). Uses PRINT_CURRENCY_LABEL for reliable thermal print. */
-function formatAmount(paise: number, _currency?: string): string {
-  return `${PRINT_CURRENCY_LABEL} ${(paise / 100).toFixed(2)}`;
+/** Strip non-ASCII characters so thermal printers (CP437) don't print garbage glyphs. */
+function ascii(text: string): string {
+  return text.replace(/[^\x20-\x7E]/g, '');
+}
+
+/** Format amount for receipt display. Uses PRINT_CURRENCY_LABEL for reliable thermal print. */
+function formatReceiptAmount(amount: number): string {
+  return `${PRINT_CURRENCY_LABEL} ${formatAmount(amount)}`;
 }
 
 /** Prefix a line with left margin. Center tags already add their own spacing. */
@@ -58,15 +65,16 @@ function margin(line: string): string {
   return RECEIPT_LEFT_MARGIN + line;
 }
 
-/** Format date for receipt */
+/** Format date for receipt — pure ASCII output safe for thermal printers. */
 function formatReceiptDate(iso: string): string {
-  return new Date(iso).toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const d = new Date(iso);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = String(d.getDate()).padStart(2, '0');
+  const mon = months[d.getMonth()];
+  const year = d.getFullYear();
+  const hr = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${day} ${mon} ${year}, ${hr}:${min}`;
 }
 
 /**
@@ -79,33 +87,34 @@ export function buildReceiptText(data: ReceiptData): string {
   lines.push('<C><B>' + SELLER_NAME + '</B></C>');
   lines.push('<C>----------------</C>');
   lines.push('');
-  lines.push(margin('Order #' + (data.orderId.length > 12 ? data.orderId.slice(0, 12) + '…' : data.orderId)));
+  const orderId = ascii(data.orderId);
+  lines.push(margin('Order #' + (orderId.length > 12 ? orderId.slice(0, 12) + '...' : orderId)));
   lines.push(margin(formatReceiptDate(data.createdAt)));
-  lines.push(margin(data.isRefund ? 'Refund (Cash)' : 'Payment: ' + data.paymentMethod));
+  lines.push(margin(data.isRefund ? 'Refund (Cash)' : 'Payment: ' + ascii(data.paymentMethod)));
   lines.push('');
   lines.push(margin('----------------'));
 
   for (const item of data.items) {
-    // 1 - Product name
-    const name = item.product_name.length > 24 ? item.product_name.slice(0, 24) + '…' : item.product_name;
-    lines.push(margin(name));
-    // 2 - Size of product (if present)
-    if (item.size?.trim()) {
-      lines.push(margin('Size: ' + item.size.trim()));
+    const name = ascii(item.product_name);
+    const truncated = name.length > 24 ? name.slice(0, 24) + '...' : name;
+    lines.push(margin(truncated));
+    const size = item.size?.trim();
+    if (size) {
+      lines.push(margin('Size: ' + ascii(size)));
     }
-    // 3 - Article code - Quantity * unit price = total
-    const codePart = item.article_code?.trim() ? item.article_code.trim() + ' - ' : '';
-    const unitDisplay = (item.unit_price / 100).toFixed(2);
-    const totalDisplay = (item.total / 100).toFixed(2);
+    const code = item.article_code?.trim();
+    const codePart = code ? ascii(code) + ' - ' : '';
+    const unitDisplay = formatAmount(item.unit_price);
+    const totalDisplay = formatAmount(item.total);
     lines.push(margin('  ' + codePart + `${item.quantity} x ${unitDisplay} = ${PRINT_CURRENCY_LABEL} ${totalDisplay}`));
   }
 
   lines.push(margin('----------------'));
-  lines.push(margin('<B>Total: ' + formatAmount(data.total) + '</B>'));
+  lines.push(margin('<B>Total: ' + formatReceiptAmount(data.total) + '</B>'));
   lines.push('');
   lines.push('<C>Thank you!</C>');
   lines.push('');
-  lines.push('<C>' + Strings.company.receiptFootnote + '</C>');
+  lines.push('<C>' + ascii(Strings.company.receiptFootnote) + '</C>');
   lines.push('');
 
   return lines.join('\n');
@@ -187,11 +196,11 @@ export function getMockReceiptData(): ReceiptData {
     orderId: 'MOCK-' + Date.now().toString(36).toUpperCase(),
     createdAt: now,
     items: [
-      { product_name: 'Test Product A', size: 'M', article_code: 'SKU-A', quantity: 2, unit_price: 5000, total: 10000 },
-      { product_name: 'Test Product B', article_code: 'SKU-B', quantity: 1, unit_price: 2500, total: 2500 },
+      { product_name: 'Test Product A', size: 'M', article_code: 'SKU-A', quantity: 2, unit_price: 50, total: 100 },
+      { product_name: 'Test Product B', article_code: 'SKU-B', quantity: 1, unit_price: 25, total: 25 },
     ],
-    subtotal: 12500,
-    total: 12500,
+    subtotal: 125,
+    total: 125,
     paymentMethod: toPaymentMethodValue({ ...PAYMENT_CHECKOUT_MAP[CheckoutButton.CASH], cash_share: 0, online_share: 0 }),
     isRefund: false,
     currency: CURRENCY_DEFAULT,

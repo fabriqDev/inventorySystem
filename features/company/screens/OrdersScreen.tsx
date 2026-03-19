@@ -19,7 +19,7 @@ import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { fetchOrders } from '@/core/api/orders';
-import { formatDate, formatPrice, truncateId } from '@/core/services/format';
+import { formatDate, formatPrice, roundMoney, truncateId } from '@/core/services/format';
 import type { OrderStatusEnum, OrderWithItems } from '@/core/types/order';
 import { getPaymentDisplayKey, fromPaymentMethodValue, PaymentType } from '@/core/types/order';
 import { Strings } from '@/core/strings';
@@ -85,7 +85,7 @@ export default function OrdersScreen() {
     const successful = orders.filter(
       (o) => o.status === 'success' && o.total > 0,
     );
-    return successful.reduce((sum, o) => sum + o.total, 0);
+    return roundMoney(successful.reduce((sum, o) => sum + o.total, 0));
   }, [orders]);
 
   const currency = orders[0]?.currency ?? CURRENCY_DEFAULT;

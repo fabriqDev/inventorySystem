@@ -183,7 +183,11 @@ const auth: AuthProvider = {
 
   async getSession() {
     await sessionStorageBackend.hydrationPromise;
-    return toAppSession(nhost.getUserSession());
+    const existing = nhost.getUserSession();
+    if (existing) return toAppSession(existing);
+    // Access token may have expired while app was killed; use stored refresh token.
+    const refreshed = await nhost.refreshSession(0);
+    return toAppSession(refreshed);
   },
 
   onAuthStateChange(cb) {

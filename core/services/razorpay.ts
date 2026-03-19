@@ -5,7 +5,7 @@ export interface RazorpayOptions {
   key: string;
   /** Razorpay order ID returned by server createRazorpayOrder action. */
   order_id: string;
-  /** Amount in smallest currency unit (paise for INR). */
+  /** Amount in paise (smallest currency unit). Caller must convert from rupees: Math.round(rupees * 100). */
   amount: number;
   currency: string;
   name: string;

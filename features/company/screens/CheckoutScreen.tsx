@@ -32,7 +32,7 @@ import { useCompany } from '@/core/context/company-context';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { formatPrice } from '@/core/services/format';
+import { formatAmount, formatPrice, roundMoney } from '@/core/services/format';
 import { openRazorpayCheckout, RazorpayError } from '@/core/services/razorpay';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
@@ -72,8 +72,8 @@ function CheckoutItemCell({
   stockError?: string;
   borderColor?: string;
 }) {
-  const unitAmount = (item.unit_price / 100).toFixed(2);
-  const totalAmount = (Math.abs(lineTotal) / 100).toFixed(2);
+  const unitAmount = formatAmount(item.unit_price);
+  const totalAmount = formatAmount(Math.abs(lineTotal));
   const formulaPrefix = `${item.quantity} × ${unitAmount} =`;
   const size = item.product.size?.trim();
 
@@ -130,7 +130,7 @@ function CheckoutItemCell({
 /** Build order items with positive values for backend; transaction_type is sale | refund. */
 function cartToOrderItems(items: CartItem[]): CreateOrderItemInput[] {
   return items.map((item) => {
-    const lineTotal = item.unit_price * item.quantity;
+    const lineTotal = roundMoney(item.unit_price * item.quantity);
     return {
       article_code: item.product.article_code,
       product_name: item.product.name,
@@ -154,7 +154,7 @@ function cartToReceiptItems(
     article_code: item.product.scan_code ?? item.product.article_code,
     quantity: item.quantity,
     unit_price: item.unit_price,
-    total: item.unit_price * item.quantity,
+    total: roundMoney(item.unit_price * item.quantity),
   }));
 }
 
@@ -481,7 +481,7 @@ export default function CheckoutScreen() {
       const sdkResult = await openRazorpayCheckout({
         key: razorpayKey,
         order_id: razorpayOrderId,
-        amount: total,
+        amount: Math.round(roundMoney(total) * 100),
         currency: currency === CURRENCY_DEFAULT ? 'INR' : currency,
         name: selectedCompany?.name ?? 'Payment',
         theme: { color: colors.tint },
@@ -641,12 +641,10 @@ export default function CheckoutScreen() {
   }, []);
 
   const handleSplitConfirm = useCallback(() => {
-    const cashRupees = parseFloat(splitCashInput || '0') || 0;
-    const onlineRupees = parseFloat(splitOnlineInput || '0') || 0;
-    const cash_share = Math.round(cashRupees * 100);
-    const online_share = Math.round(onlineRupees * 100);
-    const sum = cash_share + online_share;
-    if (sum !== total) {
+    const cash_share = roundMoney(parseFloat(splitCashInput || '0') || 0);
+    const online_share = roundMoney(parseFloat(splitOnlineInput || '0') || 0);
+    const sum = roundMoney(cash_share + online_share);
+    if (sum !== roundMoney(total)) {
       toast.show({
         type: 'error',
         message: `Cash + Online must equal total (${formatPrice(total, currency)}).`,
@@ -702,7 +700,7 @@ export default function CheckoutScreen() {
         <View style={styles.itemsSection}>
           {items.map((item) => {
             const isItemRefund = item.transactionType === 'refund';
-            const lineTotal = item.unit_price * item.quantity * (isItemRefund ? -1 : 1);
+            const lineTotal = roundMoney(item.unit_price * item.quantity * (isItemRefund ? -1 : 1));
             const avail = availableStock.get(item.article_code);
             const exceedsStock = !isItemRefund && avail != null && item.quantity > avail;
             const stockError = exceedsStock
