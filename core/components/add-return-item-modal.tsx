@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,7 +43,6 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
 
   const [searchVisible, setSearchVisible] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
-  const [barcodeInput, setBarcodeInput] = useState('');
   const lastScannedRef = useRef<string | null>(null);
   const scanCooldownRef = useRef(false);
 
@@ -105,17 +103,9 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
     [handleBarcodeScanned],
   );
 
-  const handleManualLookup = useCallback(() => {
-    const b = barcodeInput.trim();
-    if (!b) return;
-    handleBarcodeScanned(b);
-    setBarcodeInput('');
-  }, [barcodeInput, handleBarcodeScanned]);
-
   useEffect(() => {
     if (!visible) {
       setScanError(null);
-      setBarcodeInput('');
       setSearchVisible(false);
     } else if (isWebDesktop) {
       setSearchVisible(true);
@@ -191,23 +181,8 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
                   ) : (
                     <View style={[styles.fallback, { backgroundColor: colors.background }]}>
                       <ThemedText style={[styles.fallbackLabel, { color: colors.icon }]}>
-                        Enter barcode
+                        Camera access is required to scan barcodes.
                       </ThemedText>
-                      <TextInput
-                        style={[styles.barcodeInput, { color: colors.text, borderColor: colors.icon + '40' }]}
-                        placeholder="Type barcode…"
-                        placeholderTextColor={colors.icon}
-                        value={barcodeInput}
-                        onChangeText={(t) => { setBarcodeInput(t); setScanError(null); }}
-                        returnKeyType="search"
-                        onSubmitEditing={handleManualLookup}
-                      />
-                      <Pressable
-                        onPress={handleManualLookup}
-                        style={[styles.lookupBtn, { backgroundColor: colors.tint }]}
-                      >
-                        <ThemedText style={styles.lookupBtnText}>Look up</ThemedText>
-                      </Pressable>
                       {!permission?.granted && (Platform.OS !== 'web' || showCameraOnWeb) && (
                         <Pressable onPress={requestPermission} style={[styles.permBtn, { borderColor: colors.tint }]}>
                           <ThemedText style={{ color: colors.tint }}>Grant camera access</ThemedText>
@@ -229,15 +204,6 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
                   <IconSymbol name="magnifyingglass" size={22} color="#fff" />
                   <ThemedText style={styles.searchBtnBelowText}>Search</ThemedText>
                 </Pressable>
-                <TextInput
-                  style={[styles.barcodeInputInline, { color: colors.text, borderColor: colors.icon + '40' }]}
-                  placeholder="Or type barcode…"
-                  placeholderTextColor={colors.icon}
-                  value={barcodeInput}
-                  onChangeText={(t) => { setBarcodeInput(t); setScanError(null); }}
-                  returnKeyType="search"
-                  onSubmitEditing={handleManualLookup}
-                />
               </View>
             </>
           )}
@@ -292,12 +258,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   searchBtnBelowText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  barcodeInputInline: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-  },
   errorOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -352,19 +312,7 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: 'center',
   },
-  fallbackLabel: { fontSize: 14 },
-  barcodeInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 14,
-    fontSize: 16,
-  },
-  lookupBtn: {
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  lookupBtnText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  fallbackLabel: { fontSize: 14, textAlign: 'center' },
   permBtn: {
     alignSelf: 'center',
     paddingVertical: 10,
