@@ -117,9 +117,14 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
         ]}
       >
         <View style={styles.cardBody}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1}>
+          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.productName}>
             {item.name}
           </ThemedText>
+          {item.size?.trim() ? (
+            <ThemedText style={[styles.sizeLabel, { color: colors.icon }]}>
+              Size: <ThemedText style={styles.sizeValue}>{item.size.trim()}</ThemedText>
+            </ThemedText>
+          ) : null}
           <ThemedText style={[styles.codeText, { color: colors.icon }]}>
             Code: {item.scan_code}
           </ThemedText>
@@ -243,6 +248,9 @@ const styles = StyleSheet.create({
   },
   cardPressed: { opacity: 0.7 },
   cardBody: { flex: 1, gap: 2 },
+  productName: { fontSize: 15 },
+  sizeLabel: { fontSize: 12 },
+  sizeValue: { fontWeight: '600', fontSize: 12 },
   codeText: { fontSize: 12 },
   cardRight: { alignItems: 'flex-end', gap: 4, marginLeft: 12 },
   priceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },

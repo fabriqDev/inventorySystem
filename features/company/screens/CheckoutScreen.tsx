@@ -106,6 +106,11 @@ function CheckoutItemCell({
               </ThemedText>
             </View>
           ) : null}
+          {item.product.scan_code?.trim() ? (
+            <ThemedText style={[styles.checkoutArticleCode, { color: colors.icon }]}>
+              Code: {item.product.scan_code.trim()}
+            </ThemedText>
+          ) : null}
         </View>
         <View style={styles.checkoutFormulaRow}>
           <ThemedText
@@ -148,14 +153,17 @@ function cartToOrderItems(items: CartItem[]): CreateOrderItemInput[] {
 function cartToReceiptItems(
   items: CartItem[]
 ): { product_name: string; size?: string; article_code?: string; quantity: number; unit_price: number; total: number }[] {
-  return items.map((item) => ({
-    product_name: item.product.name,
-    size: item.product.size,
-    article_code: item.product.scan_code ?? item.product.article_code,
-    quantity: item.quantity,
-    unit_price: item.unit_price,
-    total: roundMoney(item.unit_price * item.quantity),
-  }));
+  return items.map((item) => {
+    const lineTotal = roundMoney(item.unit_price * item.quantity);
+    return {
+      product_name: item.product.name,
+      size: item.product.size,
+      article_code: item.product.scan_code ?? item.product.article_code,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total: item.transactionType === 'refund' ? -lineTotal : lineTotal,
+    };
+  });
 }
 
 function AnimatedCheckmark({ color }: { color: string }) {
@@ -640,6 +648,14 @@ export default function CheckoutScreen() {
     setSplitOnlineInput('');
   }, []);
 
+  const handleSplitCashChange = useCallback((text: string) => {
+    setSplitCashInput(text);
+    const cash = parseFloat(text || '0') || 0;
+    if (cash >= 0 && cash <= total) {
+      setSplitOnlineInput(formatAmount(roundMoney(total - cash)));
+    }
+  }, [total]);
+
   const handleSplitConfirm = useCallback(() => {
     const cash_share = roundMoney(parseFloat(splitCashInput || '0') || 0);
     const online_share = roundMoney(parseFloat(splitOnlineInput || '0') || 0);
@@ -846,7 +862,7 @@ export default function CheckoutScreen() {
                   placeholder="Cash amount (₹)"
                   placeholderTextColor={colors.icon}
                   value={splitCashInput}
-                  onChangeText={setSplitCashInput}
+                  onChangeText={handleSplitCashChange}
                   keyboardType="decimal-pad"
                 />
                 <TextInput

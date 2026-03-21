@@ -86,12 +86,24 @@ export const DEFAULT_PAYMENT_METHOD_VALUE = toPaymentMethodValue({
   online_share: 0,
 });
 
-/** Get display label for payment (use with Strings or pass labels map). */
+/** Get display label key for payment (use with Strings.company[key]). */
 export function getPaymentDisplayKey(p: { payment_type: PaymentTypeEnum; payment_provider: PaymentProviderEnum }): 'cash' | 'online' | 'onlinePg' | 'split' {
   if (p.payment_provider === PaymentProvider.RAZORPAY) return 'onlinePg';
   if (p.payment_type === PaymentType.SPLIT) return 'split';
   if (p.payment_type === PaymentType.ONLINE) return 'online';
   return 'cash';
+}
+
+const PAYMENT_DISPLAY_LABELS: Record<ReturnType<typeof getPaymentDisplayKey>, string> = {
+  cash: 'Cash',
+  online: 'Online',
+  onlinePg: 'Online (PG)',
+  split: 'Split',
+};
+
+/** Human-readable payment label: "Cash", "Online", "Online (PG)", or "Split". */
+export function getPaymentDisplayLabel(p: { payment_type: PaymentTypeEnum; payment_provider: PaymentProviderEnum }): string {
+  return PAYMENT_DISPLAY_LABELS[getPaymentDisplayKey(p)];
 }
 
 /** Map legacy API payment_method string to Order payment fields (e.g. when fetching orders). */

@@ -15,7 +15,7 @@ import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { formatPrice } from '@/core/services/format';
+import { formatAmount, formatPrice } from '@/core/services/format';
 import {
   buildReceiptText,
   connectAndPrint,
@@ -26,7 +26,7 @@ import {
 } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
-import { getPaymentDisplayKey, PaymentProvider, PaymentType, toPaymentMethodValue } from '@/core/types/order';
+import { getPaymentDisplayLabel, PaymentProvider, PaymentType } from '@/core/types/order';
 import type { PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
 
 const SELLER_NAME = Strings.company.sellerName;
@@ -45,8 +45,7 @@ function parseItemsJson(itemsJson: string | undefined): ReceiptLineItem[] {
 }
 
 function paymentMethodLabel(payment_type: PaymentTypeEnum, payment_provider: PaymentProviderEnum): string {
-  const key = getPaymentDisplayKey({ payment_type, payment_provider });
-  return Strings.company[key];
+  return getPaymentDisplayLabel({ payment_type, payment_provider });
 }
 
 export default function ReceiptPreviewScreen() {
@@ -68,7 +67,7 @@ export default function ReceiptPreviewScreen() {
   const total = Number(params.total) || 0;
   const payment_type = params.payment_type ?? PaymentType.CASH;
   const payment_provider = (params.payment_provider as PaymentProviderEnum) ?? PaymentProvider.NONE;
-  const paymentMethod = toPaymentMethodValue({ payment_type, payment_provider, cash_share: 0, online_share: 0 });
+  const paymentMethod = getPaymentDisplayLabel({ payment_type, payment_provider });
   const currency = params.currency ?? CURRENCY_DEFAULT;
   const items = parseItemsJson(params.itemsJson);
 
@@ -163,25 +162,45 @@ export default function ReceiptPreviewScreen() {
             {SELLER_NAME}
           </ThemedText>
           <ThemedText style={[styles.orderId, { color: colors.icon }]}>
-            Order #{serverOrderId.length > 12 ? serverOrderId.slice(0, 12) + '…' : serverOrderId}
+            Order #{serverOrderId}
           </ThemedText>
           <View style={[styles.divider, { backgroundColor: colors.icon + '20' }]} />
 
-          {items.map((item, index) => (
-            <View key={index} style={styles.itemRow}>
-              <ThemedText style={styles.itemName} numberOfLines={2}>
-                {item.product_name}
-              </ThemedText>
-              <View style={styles.itemMeta}>
-                <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
-                  {item.quantity} × {formatPrice(item.unit_price, currency)}
-                </ThemedText>
-                <ThemedText style={styles.itemTotal}>
-                  {formatPrice(item.total, currency)}
-                </ThemedText>
+          {items.map((item, index) => {
+            const isReturn = item.total < 0;
+            return (
+              <View key={index} style={styles.itemRow}>
+                <View style={styles.itemNameRow}>
+                  <ThemedText style={styles.itemName} numberOfLines={2}>
+                    {item.product_name}
+                  </ThemedText>
+                  {isReturn && (
+                    <View style={styles.returnBadge}>
+                      <ThemedText style={styles.returnBadgeText}>Return</ThemedText>
+                    </View>
+                  )}
+                </View>
+                {item.size?.trim() ? (
+                  <ThemedText style={[styles.itemSize, { color: colors.icon }]}>
+                    Size: {item.size.trim()}
+                  </ThemedText>
+                ) : null}
+                {item.article_code?.trim() ? (
+                  <ThemedText style={[styles.itemCode, { color: colors.icon }]}>
+                    Code: {item.article_code.trim()}
+                  </ThemedText>
+                ) : null}
+                <View style={styles.itemMeta}>
+                  <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
+                    {item.quantity} × {formatAmount(item.unit_price)}
+                  </ThemedText>
+                  <ThemedText style={[styles.itemTotal, isReturn && { color: '#C62828' }]}>
+                    {isReturn ? '-' : ''}{formatAmount(Math.abs(item.total))}
+                  </ThemedText>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
 
           <View style={[styles.divider, { backgroundColor: colors.icon + '20' }]} />
           <View style={styles.totalRow}>
@@ -280,9 +299,34 @@ const styles = StyleSheet.create({
   itemRow: {
     marginBottom: 12,
   },
+  itemNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   itemName: {
     fontSize: 15,
     fontWeight: '500',
+    flexShrink: 1,
+  },
+  returnBadge: {
+    backgroundColor: '#FFEBEE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  returnBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#C62828',
+  },
+  itemSize: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  itemCode: {
+    fontSize: 12,
+    marginTop: 2,
   },
   itemMeta: {
     flexDirection: 'row',

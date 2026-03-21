@@ -128,7 +128,7 @@ export async function disconnect(): Promise<void> {
 export async function printReceipt(receiptText: string): Promise<void> {
   const BLE = await getBLEPrinter();
   if (!BLE) throw new Error('Printing is not supported on this device');
-  await BLE.printBill(receiptText);
+  await BLE.printBill(receiptText, { encoding: 'CP437' });
 }
 
 /**

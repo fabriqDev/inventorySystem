@@ -471,12 +471,10 @@ const UPDATE_TRANSFER_MUTATION = `
 function mapProductInventoryRow(row: any): Product {
   const reserved = row.reserved ?? 0;
   const product = row.product ?? {};
-  const name = product.name ?? '';
-  const size = product.size ? ` (${product.size})` : '';
   return {
     article_code: product.article_code,
     company_id: row.company_id,
-    name: `${name}${size}`.trim() || product.article_code,
+    name: (product.name ?? '').trim() || product.article_code,
     scan_code: product.article_code,
     price: row.selling_price ?? 0,
     currency: CURRENCY_DEFAULT,
@@ -591,7 +589,7 @@ const data: DataProvider = {
         items: (o.order_items ?? []).map((i: any) => ({
           article_code: i.article_code ?? '',
           product_name: i.product_name ?? '',
-          size: i.size ?? undefined,
+          size: i.product?.size ?? undefined,
           quantity: i.quantity ?? 0,
           unit_price: i.unit_price ?? 0,
           total: i.total ?? 0,

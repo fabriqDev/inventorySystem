@@ -13,7 +13,7 @@ import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { formatAmount } from '@/core/services/format';
 import { Strings } from '@/core/strings';
 import type { OrderWithItems } from '@/core/types/order';
-import { CheckoutButton, PAYMENT_CHECKOUT_MAP, toPaymentMethodValue } from '@/core/types/order';
+import { CheckoutButton, getPaymentDisplayLabel, PAYMENT_CHECKOUT_MAP } from '@/core/types/order';
 
 const SELLER_NAME = 'FabrIQ';
 
@@ -54,9 +54,10 @@ function ascii(text: string): string {
   return text.replace(/[^\x20-\x7E]/g, '');
 }
 
-/** Format amount for receipt display. Uses PRINT_CURRENCY_LABEL for reliable thermal print. */
+/** Format amount for receipt display: "Rs. 125.00" or "Rs. -125.00". Sign always after symbol. */
 function formatReceiptAmount(amount: number): string {
-  return `${PRINT_CURRENCY_LABEL} ${formatAmount(amount)}`;
+  const sign = amount < 0 ? '-' : '';
+  return `${PRINT_CURRENCY_LABEL} ${sign}${formatAmount(Math.abs(amount))}`;
 }
 
 /** Prefix a line with left margin. Center tags already add their own spacing. */
@@ -84,33 +85,35 @@ function formatReceiptDate(iso: string): string {
 export function buildReceiptText(data: ReceiptData): string {
   const lines: string[] = [];
 
-  lines.push('<C><B>' + SELLER_NAME + '</B></C>');
+  lines.push('<CD>' + SELLER_NAME + '</CD>');
   lines.push('<C>----------------</C>');
   lines.push('');
   const orderId = ascii(data.orderId);
-  lines.push(margin('Order #' + (orderId.length > 12 ? orderId.slice(0, 12) + '...' : orderId)));
+  lines.push(margin('Order #' + orderId));
   lines.push(margin(formatReceiptDate(data.createdAt)));
   lines.push(margin(data.isRefund ? 'Refund (Cash)' : 'Payment: ' + ascii(data.paymentMethod)));
   lines.push('');
   lines.push(margin('----------------'));
 
   for (const item of data.items) {
+    const isReturn = item.total < 0;
     const name = ascii(item.product_name);
     const truncated = name.length > 24 ? name.slice(0, 24) + '...' : name;
-    lines.push(margin(truncated));
+    lines.push(margin(truncated + (isReturn ? ' (RETURN)' : '')));
     const size = item.size?.trim();
     if (size) {
-      lines.push(margin('Size: ' + ascii(size)));
+      lines.push(margin('  Size: ' + ascii(size)));
     }
     const code = item.article_code?.trim();
     const codePart = code ? ascii(code) + ' - ' : '';
     const unitDisplay = formatAmount(item.unit_price);
-    const totalDisplay = formatAmount(item.total);
-    lines.push(margin('  ' + codePart + `${item.quantity} x ${unitDisplay} = ${PRINT_CURRENCY_LABEL} ${totalDisplay}`));
+    const sign = isReturn ? '-' : '';
+    const totalDisplay = formatAmount(Math.abs(item.total));
+    lines.push(margin('  ' + codePart + `${item.quantity} x ${unitDisplay} = ${sign}${totalDisplay}`));
   }
 
   lines.push(margin('----------------'));
-  lines.push(margin('<B>Total: ' + formatReceiptAmount(data.total) + '</B>'));
+  lines.push(margin('Total: ' + formatReceiptAmount(data.total)));
   lines.push('');
   lines.push('<C>Thank you!</C>');
   lines.push('');
@@ -144,15 +147,13 @@ export function orderToReceiptData(order: OrderWithItems): ReceiptData {
       article_code: i.article_code,
       quantity: i.quantity,
       unit_price: i.unit_price,
-      total: i.total,
+      total: i.transaction_type === 'refund' ? -Math.abs(i.total) : i.total,
     })),
     subtotal: order.subtotal,
     total: order.total,
-    paymentMethod: toPaymentMethodValue({
+    paymentMethod: getPaymentDisplayLabel({
       payment_type: order.payment_type,
       payment_provider: order.payment_provider,
-      cash_share: order.cash_share,
-      online_share: order.online_share,
     }),
     isRefund: order.total < 0,
     currency: order.currency,
@@ -201,7 +202,7 @@ export function getMockReceiptData(): ReceiptData {
     ],
     subtotal: 125,
     total: 125,
-    paymentMethod: toPaymentMethodValue({ ...PAYMENT_CHECKOUT_MAP[CheckoutButton.CASH], cash_share: 0, online_share: 0 }),
+    paymentMethod: getPaymentDisplayLabel(PAYMENT_CHECKOUT_MAP[CheckoutButton.CASH]),
     isRefund: false,
     currency: CURRENCY_DEFAULT,
   };

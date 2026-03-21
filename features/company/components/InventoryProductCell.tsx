@@ -39,9 +39,14 @@ export function InventoryProductCell({
     >
       <View style={styles.topRow}>
         <View style={styles.body}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1}>
+          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.productName}>
             {product.name}
           </ThemedText>
+          {product.size?.trim() ? (
+            <ThemedText style={[styles.sizeLabel, { color: colors.icon }]}>
+              Size: <ThemedText style={styles.sizeValue}>{product.size.trim()}</ThemedText>
+            </ThemedText>
+          ) : null}
           <ThemedText style={[styles.code, { color: colors.icon }]}>
             Code: {product.scan_code}
           </ThemedText>
@@ -77,6 +82,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   body: { flex: 1, gap: 2 },
+  productName: { fontSize: 15 },
+  sizeLabel: { fontSize: 12 },
+  sizeValue: { fontWeight: '600', fontSize: 12 },
   code: { fontSize: 12 },
   right: { alignItems: 'flex-end', marginLeft: 12, gap: 2 },
   availableLabel: { fontSize: 13 },
