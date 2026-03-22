@@ -41,7 +41,7 @@ Details: [docs/navigation.md](docs/navigation.md) and [docs/architecture.md](doc
 
 ## Local storage
 
-- **Session:** SecureStore/AsyncStorage via NHost auth.
+- **Session:** AsyncStorage via NHost auth (native).
 - **Printer device:** AsyncStorage in `core/services/printing/print-service.ts`.
 
 See [docs/local-storage.md](docs/local-storage.md).

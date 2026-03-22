@@ -15,7 +15,7 @@ Handles **login** and **session**. User signs in with email and password; on suc
 
 ## API
 
-- **NHost Auth** — Sign-in and session management are done through the backend abstraction used in auth context (e.g. `backend.auth.signIn()`). Session is persisted via SecureStore/AsyncStorage by the NHost client.
+- **NHost Auth** — Sign-in and session management are done through the backend abstraction used in auth context (e.g. `backend.auth.signIn()`). Session is persisted via **AsyncStorage** on native by the NHost client (`core/backend/nhost.ts`).
 
 ## Storage
 

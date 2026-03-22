@@ -6,12 +6,12 @@ FabriqWorld uses local storage for session and for the selected printer device.
 
 | Data        | Purpose                    | Where                      |
 |------------|----------------------------|----------------------------|
-| **Session**| Auth token / user session   | NHost auth: `SecureStore` if session JSON ≤2048 **bytes**, else `AsyncStorage` only (see `core/backend/nhost.ts`) |
+| **Session**| Auth token / user session   | NHost auth: **AsyncStorage** on native (see `core/backend/nhost.ts`); one-time migration from legacy SecureStore if Async is empty |
 | **Printer**| Last selected Bluetooth printer | `core/services/printing/print-service.ts` (AsyncStorage) |
 
 ## Where it’s implemented
 
-- **Session:** NHost auth client (used in `core/backend/nhost.ts`) persists the session. On native, **AsyncStorage is read before SecureStore** on cold start so a larger session stored only in Async is not shadowed by an outdated Secure entry. **Logout** should only happen when the user signs out or when NHost refresh returns **401** (revoked/expired refresh token)—not when killing the app.
+- **Session:** NHost auth client (used in `core/backend/nhost.ts`) persists the session on native **only in AsyncStorage** (no SecureStore on the write path). First launch after upgrade may **once** copy an old Secure-only session into Async. **Logout** should only happen when the user signs out or when NHost refresh returns **401** (revoked/expired refresh token)—not when killing the app.
 - **Web (normal windows / tabs):** Session is stored in **`localStorage`** (same origin). Opening the app in **another tab** loads that key, so you stay signed in. **`SessionProvider`** listens for the cross-tab `storage` event so an already-open tab updates if you sign in or out elsewhere. **Incognito / private** windows use an isolated store—each window is its own session (expected).
 - **Printer:** `core/services/printing/print-service.ts` uses **AsyncStorage** to save and load the selected printer device (e.g. MAC address or device id). Keys and contract are defined in that module (e.g. `getSavedPrinter`, `setSavedPrinter`).
 

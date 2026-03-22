@@ -5,7 +5,6 @@ import {
   type SessionStorageBackend,
 } from '@nhost/nhost-js/session';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
@@ -37,34 +36,28 @@ import type {
 } from './types';
 
 const SESSION_KEY = DEFAULT_SESSION_KEY;
-const SECURE_STORE_MAX_BYTES = 2048;
 
 // ---------------------------------------------------------------------------
-// Session storage — AsyncStorage is ALWAYS the primary store on native.
+// Session storage (NHost)
 //
-// Prior code only wrote to SecureStore for small payloads and DELETED the
-// AsyncStorage copy.  Two problems:
-//   1. Android Keystore (SecureStore) can silently return null after a process
-//      kill on some devices → session lost → user logged out.
-//   2. All writes were fire-and-forget (void).  NHost rotates refresh tokens
-//      on each use; if the app was killed before the async write completed,
-//      the on-disk token was already revoked → 401 → SDK clears storage.
+// Native: **AsyncStorage only** — no expo-secure-store for the session.
+// SecureStore/Keystore has caused silent data loss after process kill on Android;
+// tokens in AsyncStorage are standard for RN apps and persist reliably.
 //
-// Rules now:
-//   • AsyncStorage is ALWAYS written first and NEVER deleted by set().
-//   • SecureStore is a best-effort encrypted copy (small payloads only).
-//   • Reads check AsyncStorage first; SecureStore is a fallback only.
-//   • set() awaits the AsyncStorage write so it is as durable as possible.
+// One-time migration: if AsyncStorage is empty, read legacy SecureStore once,
+// copy to AsyncStorage, delete Secure key (dynamic import — not used on write path).
+//
+// Web: localStorage (unchanged).
+// set() awaits AsyncStorage.setItem so rotated refresh tokens hit disk before kill.
 // ---------------------------------------------------------------------------
 
-class SecureSessionStorage implements SessionStorageBackend {
+class AppSessionStorage implements SessionStorageBackend {
   private cache: Session | null = null;
   readonly hydrationPromise: Promise<void>;
   private writeGen = 0;
+  private pendingWrite: Promise<void> = Promise.resolve();
 
   constructor() {
-    // On web, read localStorage synchronously so the SDK has the session during
-    // createClient() init — this ensures auto-refresh middleware is configured.
     if (Platform.OS === 'web') {
       try {
         const raw = typeof window !== 'undefined' && window.localStorage
@@ -78,32 +71,35 @@ class SecureSessionStorage implements SessionStorageBackend {
     }
   }
 
+  private async migrateLegacySecureStoreOnce(): Promise<string | null> {
+    try {
+      const SS = await import('expo-secure-store');
+      const v = await SS.getItemAsync(SESSION_KEY).catch(() => null);
+      if (v) {
+        await AsyncStorage.setItem(SESSION_KEY, v).catch(() => {});
+        await SS.deleteItemAsync(SESSION_KEY).catch(() => {});
+      }
+      return v;
+    } catch {
+      return null;
+    }
+  }
+
   private async hydrateNative(): Promise<void> {
     try {
-      const [fromAsync, fromSecure] = await Promise.all([
-        AsyncStorage.getItem(SESSION_KEY).catch(() => null),
-        SecureStore.getItemAsync(SESSION_KEY).catch(() => null),
-      ]);
-
-      // AsyncStorage is primary.
-      if (fromAsync) {
-        try {
-          this.cache = JSON.parse(fromAsync) as Session;
-          return;
-        } catch { /* corrupt JSON — fall through */ }
+      let raw = await AsyncStorage.getItem(SESSION_KEY).catch(() => null);
+      if (!raw) {
+        raw = await this.migrateLegacySecureStoreOnce();
       }
-
-      // Fallback: SecureStore (might still have a session from an older build).
-      if (fromSecure) {
+      if (raw) {
         try {
-          this.cache = JSON.parse(fromSecure) as Session;
-          // Migrate to AsyncStorage so the next cold start doesn't depend on Keystore.
-          void AsyncStorage.setItem(SESSION_KEY, fromSecure).catch(() => {});
-          return;
-        } catch { /* corrupt */ }
+          this.cache = JSON.parse(raw) as Session;
+        } catch {
+          this.cache = null;
+        }
+      } else {
+        this.cache = null;
       }
-
-      this.cache = null;
     } catch {
       this.cache = null;
     }
@@ -126,22 +122,13 @@ class SecureSessionStorage implements SessionStorageBackend {
       return;
     }
 
-    // Native: ALWAYS write AsyncStorage first (primary), then SecureStore (bonus).
     const gen = ++this.writeGen;
-    void (async () => {
-      try {
-        await AsyncStorage.setItem(SESSION_KEY, raw);
-      } catch { /* extremely unlikely */ }
-
-      if (gen !== this.writeGen) return;
-
-      try {
-        const bytes = new TextEncoder().encode(raw).length;
-        if (bytes <= SECURE_STORE_MAX_BYTES) {
-          await SecureStore.setItemAsync(SESSION_KEY, raw);
-        }
-      } catch { /* SecureStore failure is non-fatal */ }
-    })();
+    this.pendingWrite = this.pendingWrite
+      .then(() => {
+        if (gen !== this.writeGen) return;
+        return AsyncStorage.setItem(SESSION_KEY, raw);
+      })
+      .catch(() => {});
   }
 
   remove(): void {
@@ -155,8 +142,19 @@ class SecureSessionStorage implements SessionStorageBackend {
       } catch { /* ignore */ }
     } else {
       void AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
-      void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+      void (async () => {
+        try {
+          const SS = await import('expo-secure-store');
+          await SS.deleteItemAsync(SESSION_KEY).catch(() => {});
+        } catch { /* ignore */ }
+      })();
     }
+  }
+
+  /** Await this before the app goes to background to guarantee the latest
+   *  refresh token is flushed to AsyncStorage before the process is killed. */
+  async flush(): Promise<void> {
+    await this.pendingWrite;
   }
 
   reloadCacheFromLocalStorage(): void {
@@ -170,7 +168,7 @@ class SecureSessionStorage implements SessionStorageBackend {
   }
 }
 
-const sessionStorageBackend = new SecureSessionStorage();
+export const sessionStorageBackend = new AppSessionStorage();
 
 const nhost = createClient({
   subdomain: process.env.EXPO_PUBLIC_NHOST_SUBDOMAIN ?? 'local',
