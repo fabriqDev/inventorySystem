@@ -4,24 +4,31 @@ import type {
   CreateOrderResult,
   CreateRazorpayOrderInput,
   CreateRazorpayOrderResult,
+  FetchOrdersOptions,
   UpdateOrderStatusInput,
   VerifyRazorpayPaymentInput,
   VerifyRazorpayPaymentResult,
 } from '@/core/backend/types';
 import { createMockOrder, getMockOrders } from '@/core/services/mock-data';
-import type { OrderStatusEnum, OrderWithItems } from '@/core/types/order';
+import type { OrderItem, OrdersResponse, OrderWithItems } from '@/core/types/order';
 
-interface FetchOrdersOptions {
-  status?: OrderStatusEnum | 'all';
-}
+export type { FetchOrdersOptions };
 
 export async function fetchOrders(
   companyId: string,
   options: FetchOrdersOptions,
   useMock: boolean,
-): Promise<OrderWithItems[]> {
+): Promise<OrdersResponse> {
   if (useMock) return mockFetchOrders(companyId, options);
   return backend.data.fetchOrders(companyId, options);
+}
+
+export async function fetchOrderItems(
+  orderId: string,
+  useMock: boolean,
+): Promise<OrderItem[]> {
+  if (useMock) return [];
+  return backend.data.fetchOrderItems(orderId);
 }
 
 export async function createOrder(
@@ -53,14 +60,29 @@ export async function updateOrderStatus(
 async function mockFetchOrders(
   companyId: string,
   { status }: FetchOrdersOptions,
-): Promise<OrderWithItems[]> {
+): Promise<OrdersResponse> {
   let orders = await getMockOrders(companyId);
 
   if (status && status !== 'all') {
     orders = orders.filter((o) => o.status === status);
   }
 
-  return orders.sort(
+  const sorted = orders.sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
+
+  const totalRevenue = sorted.reduce((s, o) => s + (o.total ?? 0), 0);
+  const cashTotal = sorted.reduce((s, o) => s + (o.cash_share ?? 0), 0);
+  const onlineTotal = sorted.reduce((s, o) => s + (o.online_share ?? 0), 0);
+
+  return {
+    orders: sorted,
+    totalCount: sorted.length,
+    stats: {
+      totalRevenue,
+      totalRefunds: 0,
+      cashTotal,
+      onlineTotal,
+    },
+  };
 }

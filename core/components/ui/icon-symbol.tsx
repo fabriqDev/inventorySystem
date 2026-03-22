@@ -49,6 +49,7 @@ const MAPPING = {
   'banknote': 'payments',
   'creditcard': 'credit-card',
   'printer.fill': 'print',
+  'line.3.horizontal.decrease.circle': 'filter-list',
 } as IconMapping;
 
 /**

@@ -1,6 +1,7 @@
 import { CartTransactionType } from '@/core/types';
 import type { CompanyWithRole } from '@/core/types/company';
-import type { OrderStatusEnum, OrderWithItems, PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
+import type { OrderStatusEnum, OrderWithItems, OrdersResponse, PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
+import type { OrderItem } from '@/core/types/order';
 import type { Product, ProductListResponse } from '@/core/types/product';
 import type { InventoryTransfer } from '@/core/types/transfer';
 
@@ -30,8 +31,21 @@ export interface FetchProductsOptions {
 
 export interface FetchOrdersOptions {
   status?: OrderStatusEnum | 'all';
+  page?: number;
+  limit?: number;
+  /** ISO date string for start of date range filter (inclusive). */
+  dateFrom?: string;
+  /** ISO date string for end of date range filter (inclusive, end of day). */
+  dateTo?: string;
 }
 
+
+/** Student details for a requested item. */
+export interface RequestDetails {
+  name: string;
+  class: string;
+  phone?: string;
+}
 
 export interface CreateOrderItemInput {
   /** article_code of the product. */
@@ -43,6 +57,15 @@ export interface CreateOrderItemInput {
   tax_percentage?: number;
   tax_amount?: number;
   total: number;
+  /** Present only for request items; drives order_item_requests nested insert. */
+  request_details?: RequestDetails;
+}
+
+/** Optional order-level metadata kept for legacy / display purposes. */
+export interface OrderMeta {
+  child_name: string;
+  child_class: string;
+  parent_phone?: string;
 }
 
 export interface CreateOrderInput {
@@ -59,6 +82,8 @@ export interface CreateOrderInput {
   /** Order status: 'success' for immediate payments, 'pending' for PG flows awaiting confirmation. */
   status?: OrderStatusEnum;
   order_items: CreateOrderItemInput[];
+  /** Present when order contains requested items; carries child/class/phone info. */
+  meta?: OrderMeta;
 }
 
 export interface CreateOrderResult {
@@ -118,7 +143,8 @@ export interface DataProvider {
   fetchCompanies(userId: string): Promise<CompanyWithRole[]>;
   fetchProducts(companyId: string, opts: FetchProductsOptions): Promise<ProductListResponse>;
   fetchProductByBarcode(companyId: string, barcode: string): Promise<Product | null>;
-  fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<OrderWithItems[]>;
+  fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<OrdersResponse>;
+  fetchOrderItems(orderId: string): Promise<OrderItem[]>;
   createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null>;
   createRazorpayOrder(input: CreateRazorpayOrderInput): Promise<CreateRazorpayOrderResult>;
   verifyRazorpayPayment(input: VerifyRazorpayPaymentInput): Promise<VerifyRazorpayPaymentResult>;

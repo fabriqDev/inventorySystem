@@ -19,6 +19,7 @@ import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
+import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { isMobileOrTabletWeb } from '@/core/services/device';
 import type { Product } from '@/core/types/product';
 import type { CartTransactionType } from '@/core/types/cart';
@@ -40,6 +41,7 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
   const insets = useSafeAreaInsets();
   const { addItem } = useCart();
   const { findByBarcode } = useProductCache();
+  const { show_barcode: showBarcode } = useCompanyConfig();
 
   const [searchVisible, setSearchVisible] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -49,15 +51,17 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
   const [permission, requestPermission] = useCameraPermissions();
 
   const showCameraOnWeb = Platform.OS === 'web' && isMobileOrTabletWeb();
-  const isWebDesktop = Platform.OS === 'web' && !isMobileOrTabletWeb();
+  // Show only the search UI when barcode scanning is disabled for this company,
+  // or when running on a web desktop browser.
+  const isSearchOnly = !showBarcode || (Platform.OS === 'web' && !isMobileOrTabletWeb());
 
   useEffect(() => {
-    if (visible && (Platform.OS !== 'web' || showCameraOnWeb) && !permission?.granted) {
+    if (visible && !isSearchOnly && !permission?.granted) {
       requestPermission();
     }
-  }, [visible, showCameraOnWeb, permission?.granted, requestPermission]);
+  }, [visible, isSearchOnly, permission?.granted, requestPermission]);
 
-  const cameraAvailable = (Platform.OS !== 'web' || showCameraOnWeb) && permission?.granted;
+  const cameraAvailable = !isSearchOnly && (Platform.OS !== 'web' || showCameraOnWeb) && permission?.granted;
 
   const title = mode === 'refund' ? 'Refund item' : 'Add item';
 
@@ -107,10 +111,10 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
     if (!visible) {
       setScanError(null);
       setSearchVisible(false);
-    } else if (isWebDesktop) {
+    } else if (isSearchOnly) {
       setSearchVisible(true);
     }
-  }, [visible, isWebDesktop]);
+  }, [visible, isSearchOnly]);
 
   if (!visible) return null;
 
@@ -123,13 +127,13 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
               <IconSymbol name="xmark" size={22} color={colors.text} />
             </Pressable>
             <ThemedText type="subtitle">{title}</ThemedText>
-            <Pressable onPress={() => setSearchVisible(true)} hitSlop={12} style={isWebDesktop ? styles.searchBtnHeader : undefined}>
-              <IconSymbol name="magnifyingglass" size={isWebDesktop ? 20 : 22} color={colors.text} />
-              {isWebDesktop && <ThemedText style={[styles.searchBtnText, { color: colors.text }]}>Search</ThemedText>}
+            <Pressable onPress={() => setSearchVisible(true)} hitSlop={12} style={isSearchOnly ? styles.searchBtnHeader : undefined}>
+              <IconSymbol name="magnifyingglass" size={isSearchOnly ? 20 : 22} color={colors.text} />
+              {isSearchOnly && <ThemedText style={[styles.searchBtnText, { color: colors.text }]}>Search</ThemedText>}
             </Pressable>
           </View>
 
-          {isWebDesktop && (
+          {isSearchOnly && (
             <View style={styles.webDesktopContent}>
               <ThemedText style={[styles.webDesktopHint, { color: colors.icon }]}>
                 Use the Search button above to find and add products.
@@ -137,7 +141,7 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
             </View>
           )}
 
-          {!isWebDesktop && (
+          {!isSearchOnly && (
             <>
               {scanError ? (
                 <Pressable
@@ -218,7 +222,11 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
               <IconSymbol name="xmark" size={22} color={colors.text} />
             </Pressable>
           </View>
-          <ProductSearchList companyId={companyId} onSelectProduct={handleProductAdded} />
+          <ProductSearchList
+            companyId={companyId}
+            onSelectProduct={handleProductAdded}
+            showQuantity={mode !== 'request'}
+          />
         </ThemedView>
       </Modal>
     </>

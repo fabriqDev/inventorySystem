@@ -116,6 +116,7 @@ export async function getMockOrders(companyId: string): Promise<OrderWithItems[]
     return {
       ...rest,
       server_order_id: order_id ?? o.server_order_id,
+      refund_amount: (rest as any).refund_amount ?? 0,
       payment_type: payment.payment_type,
       payment_provider: payment.payment_provider,
       cash_share: payment.cash_share,

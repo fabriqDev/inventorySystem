@@ -20,7 +20,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createOrder, createRazorpayOrder, updateOrderStatus, verifyRazorpayPayment } from '@/core/api/orders';
-import type { CreateOrderInput, CreateOrderItemInput } from '@/core/backend/types';
+import type { CreateOrderInput, CreateOrderItemInput, OrderMeta } from '@/core/backend/types';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -56,12 +56,15 @@ const PAYMENT_COLORS = {
   razorpay: '#2563eb',
 };
 
+const CHECKOUT_REQUEST_PURPLE = '#7B2FBE';
+
 /** Single checkout line: article name, size below, and right side "qty × unit price = subtotal". No quantity controls. */
 function CheckoutItemCell({
   item,
   lineTotal,
   colors,
   isRefund,
+  isRequest,
   stockError,
   borderColor,
 }: {
@@ -69,6 +72,7 @@ function CheckoutItemCell({
   lineTotal: number;
   colors: { text: string; icon: string; background: string };
   isRefund: boolean;
+  isRequest?: boolean;
   stockError?: string;
   borderColor?: string;
 }) {
@@ -95,6 +99,11 @@ function CheckoutItemCell({
                 <ThemedText style={styles.refundBadgeText}>Refund</ThemedText>
               </View>
             )}
+            {isRequest && (
+              <View style={[styles.refundBadge, { backgroundColor: '#EDE7F6' }]}>
+                <ThemedText style={[styles.refundBadgeText, { color: CHECKOUT_REQUEST_PURPLE }]}>Request</ThemedText>
+              </View>
+            )}
           </View>
           {size ? (
             <View style={styles.checkoutSizeRow}>
@@ -114,12 +123,12 @@ function CheckoutItemCell({
         </View>
         <View style={styles.checkoutFormulaRow}>
           <ThemedText
-            style={[styles.checkoutFormula, styles.checkoutFormulaPrefix, isRefund && { color: '#C62828' }]}
+            style={[styles.checkoutFormula, styles.checkoutFormulaPrefix, isRefund && { color: '#C62828' }, isRequest && { color: CHECKOUT_REQUEST_PURPLE }]}
             numberOfLines={1}
           >
             {isRefund ? '- ' : ''}{formulaPrefix}
             {' '}
-            <ThemedText type="defaultSemiBold" style={[styles.checkoutFormula, isRefund && { color: '#C62828' }]}>
+            <ThemedText type="defaultSemiBold" style={[styles.checkoutFormula, isRefund && { color: '#C62828' }, isRequest && { color: CHECKOUT_REQUEST_PURPLE }]}>
               {totalAmount}
             </ThemedText>
           </ThemedText>
@@ -132,8 +141,11 @@ function CheckoutItemCell({
   );
 }
 
-/** Build order items with positive values for backend; transaction_type is sale | refund. */
-function cartToOrderItems(items: CartItem[]): CreateOrderItemInput[] {
+/** Build order items with positive values for backend; transaction_type is sale | refund | request. */
+function cartToOrderItems(
+  items: CartItem[],
+  requestDetails?: { name: string; class: string; phone?: string },
+): CreateOrderItemInput[] {
   return items.map((item) => {
     const lineTotal = roundMoney(item.unit_price * item.quantity);
     return {
@@ -141,10 +153,13 @@ function cartToOrderItems(items: CartItem[]): CreateOrderItemInput[] {
       product_name: item.product.name,
       quantity: item.quantity,
       unit_price: item.unit_price,
-      transaction_type: item.transactionType === 'refund' ? 'refund' : 'sale',
+      transaction_type: item.transactionType,
       tax_percentage: 0,
       tax_amount: 0,
       total: lineTotal,
+      ...(item.transactionType === 'request' && requestDetails
+        ? { request_details: requestDetails }
+        : {}),
     };
   });
 }
@@ -298,7 +313,12 @@ export default function CheckoutScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id: companyId } = useLocalSearchParams<{ id: string }>();
+  const { id: companyId, childName, childClass, parentPhone } = useLocalSearchParams<{
+    id: string;
+    childName?: string;
+    childClass?: string;
+    parentPhone?: string;
+  }>();
   const { session } = useAuth();
   const { items, total, currency, clearCart } = useCart();
   const { selectedCompany } = useCompany();
@@ -337,12 +357,16 @@ export default function CheckoutScreen() {
   const hasStockError = useMemo(
     () =>
       items.some((item) => {
-        if (item.transactionType === 'refund') return false;
+        // Refunds and requests do not need stock checks
+        if (item.transactionType === 'refund' || item.transactionType === 'request') return false;
         const avail = availableStock.get(item.article_code);
         return avail != null && item.quantity > avail;
       }),
     [items, availableStock],
   );
+
+  const saleRefundItems = useMemo(() => items.filter((i) => i.transactionType !== 'request'), [items]);
+  const checkoutRequestItems = useMemo(() => items.filter((i) => i.transactionType === 'request'), [items]);
 
   useEffect(() => {
     if (items.length === 0 && !navigatingToReceiptRef.current) {
@@ -392,6 +416,14 @@ export default function CheckoutScreen() {
       setSubmitting(true);
       const payment = getOrderPaymentForCheckout(button, total, splitAmounts);
       try {
+        const meta: OrderMeta | undefined = childName
+          ? {
+              child_name: childName,
+              child_class: childClass ?? '',
+              parent_phone: parentPhone || undefined,
+            }
+          : undefined;
+
         const orderInput: CreateOrderInput = {
           company_id: companyId,
           user_id: userId,
@@ -402,7 +434,8 @@ export default function CheckoutScreen() {
           payment_provider: payment.payment_provider,
           cash_share: payment.cash_share,
           online_share: payment.online_share,
-          order_items: cartToOrderItems(items),
+          order_items: cartToOrderItems(items, meta ? { name: meta.child_name, class: meta.child_class, phone: meta.parent_phone } : undefined),
+          meta,
         };
         const result = await createOrder(orderInput, useMockData);
         if (result == null) {
@@ -410,13 +443,16 @@ export default function CheckoutScreen() {
           return;
         }
         // Optimistically update local stock so the next sale sees correct quantities.
+        // Request items do not affect stock — skip them.
         // Server is the source of truth; cache refreshes on next TilesScreen visit.
         adjustStock(
           companyId,
-          items.map((i) => ({
-            article_code: i.article_code,
-            quantity_delta: i.transactionType === 'refund' ? i.quantity : -i.quantity,
-          })),
+          items
+            .filter((i) => i.transactionType !== 'request')
+            .map((i) => ({
+              article_code: i.article_code,
+              quantity_delta: i.transactionType === 'refund' ? i.quantity : -i.quantity,
+            })),
         );
         navigateToReceipt(result.server_order_id, result.total, payment, receiptItems);
       } catch (e: any) {
@@ -426,7 +462,7 @@ export default function CheckoutScreen() {
         setSubmitting(false);
       }
     },
-    [companyId, userId, items, total, useMockData, navigateToReceipt, adjustStock],
+    [companyId, userId, items, total, useMockData, navigateToReceipt, adjustStock, childName, childClass, parentPhone],
   );
 
   const handleCollectPayment = useCallback(() => {
@@ -531,6 +567,10 @@ export default function CheckoutScreen() {
     const payment = getOrderPaymentForCheckout(CheckoutButton.RAZORPAY, total);
 
     try {
+      const rzMeta: OrderMeta | undefined = childName
+        ? { child_name: childName, child_class: childClass ?? '', parent_phone: parentPhone || undefined }
+        : undefined;
+
       const orderInput: CreateOrderInput = {
         company_id: companyId,
         user_id: userId,
@@ -542,7 +582,8 @@ export default function CheckoutScreen() {
         cash_share: payment.cash_share,
         online_share: payment.online_share,
         status: 'pending',
-        order_items: cartToOrderItems(items),
+        order_items: cartToOrderItems(items, rzMeta ? { name: rzMeta.child_name, class: rzMeta.child_class, phone: rzMeta.parent_phone } : undefined),
+        meta: rzMeta,
       };
       const result = await createOrder(orderInput, useMockData);
       if (!result) {
@@ -586,7 +627,7 @@ export default function CheckoutScreen() {
       setOrderError(msg);
       setSubmitting(false);
     }
-  }, [companyId, userId, items, total, currency, selectedCompany, useMockData, openRazorpaySDK]);
+  }, [companyId, userId, items, total, currency, selectedCompany, useMockData, openRazorpaySDK, childName, childClass, parentPhone]);
 
   const handleRazorpayRetry = useCallback(() => {
     const ctx = razorpayContextRef.current;
@@ -714,7 +755,7 @@ export default function CheckoutScreen() {
 
         {/* ---- Order items (read-only: name, article code, qty × price = subtotal) ---- */}
         <View style={styles.itemsSection}>
-          {items.map((item) => {
+          {saleRefundItems.map((item) => {
             const isItemRefund = item.transactionType === 'refund';
             const lineTotal = roundMoney(item.unit_price * item.quantity * (isItemRefund ? -1 : 1));
             const avail = availableStock.get(item.article_code);
@@ -734,6 +775,34 @@ export default function CheckoutScreen() {
               />
             );
           })}
+
+          {/* Requested items section — always rendered once any exist */}
+          {checkoutRequestItems.length > 0 && (
+            <>
+              <View style={styles.checkoutSectionSeparator}>
+                <View style={[styles.checkoutSectionLine, { backgroundColor: CHECKOUT_REQUEST_PURPLE + '40' }]} />
+                <View style={[styles.checkoutSectionLabelWrap, { backgroundColor: '#EDE7F6' }]}>
+                  <ThemedText style={[styles.checkoutSectionLabel, { color: CHECKOUT_REQUEST_PURPLE }]}>
+                    Requested Items
+                  </ThemedText>
+                </View>
+                <View style={[styles.checkoutSectionLine, { backgroundColor: CHECKOUT_REQUEST_PURPLE + '40' }]} />
+              </View>
+              {checkoutRequestItems.map((item) => {
+                const lineTotal = roundMoney(item.unit_price * item.quantity);
+                return (
+                  <CheckoutItemCell
+                    key={`${item.article_code}-${item.transactionType}`}
+                    item={item}
+                    lineTotal={lineTotal}
+                    colors={colors}
+                    isRefund={false}
+                    isRequest
+                  />
+                );
+              })}
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -1024,6 +1093,10 @@ const styles = StyleSheet.create({
   refundBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   refundBadgeText: { fontSize: 11, fontWeight: '600', color: '#C62828' },
   stockError: { color: '#C62828', fontSize: 12, marginTop: 6 },
+  checkoutSectionSeparator: { flexDirection: 'row', alignItems: 'center', marginVertical: 10, gap: 8 },
+  checkoutSectionLine: { flex: 1, height: 1 },
+  checkoutSectionLabelWrap: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  checkoutSectionLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   /* ---- Bottom bar ---- */
   bottomBar: { borderTopWidth: 1, paddingHorizontal: 24, paddingTop: 12 },
   bottomTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },

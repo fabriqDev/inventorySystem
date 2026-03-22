@@ -1,6 +1,6 @@
 import type { Product } from './product';
 
-export type CartTransactionType = 'sale' | 'refund';
+export type CartTransactionType = 'sale' | 'refund' | 'request';
 
 export interface CartItem {
   /** article_code of the product. */

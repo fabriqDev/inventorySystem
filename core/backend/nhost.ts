@@ -24,6 +24,7 @@ import type {
   CreateTransferInput,
   CreateTransferResult,
   DataProvider,
+  FetchOrdersOptions,
   UpdateOrderStatusInput,
   VerifyRazorpayPaymentInput,
   VerifyRazorpayPaymentResult,
@@ -42,22 +43,23 @@ class SecureSessionStorage implements SessionStorageBackend {
   readonly hydrationPromise: Promise<void>;
 
   constructor() {
-    this.hydrationPromise = this.hydrate();
+    // On web, read localStorage synchronously so the SDK has the session during
+    // createClient() init — this ensures auto-refresh middleware is configured.
+    if (Platform.OS === 'web') {
+      try {
+        const raw = typeof window !== 'undefined' && window.localStorage
+          ? window.localStorage.getItem(SESSION_KEY)
+          : null;
+        if (raw) this.cache = JSON.parse(raw) as Session;
+      } catch { /* ignore */ }
+      this.hydrationPromise = Promise.resolve();
+    } else {
+      this.hydrationPromise = this.hydrateNative();
+    }
   }
 
-  private async hydrate(): Promise<void> {
+  private async hydrateNative(): Promise<void> {
     try {
-      if (Platform.OS === 'web') {
-        const raw = await AsyncStorage.getItem(SESSION_KEY);
-        if (raw) {
-          try {
-            this.cache = JSON.parse(raw) as Session;
-          } catch {
-            this.cache = null;
-          }
-        }
-        return;
-      }
       const fromSecure = await SecureStore.getItemAsync(SESSION_KEY);
       if (fromSecure) {
         try {
@@ -89,7 +91,11 @@ class SecureSessionStorage implements SessionStorageBackend {
     this.cache = value;
     const raw = JSON.stringify(value);
     if (Platform.OS === 'web') {
-      void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(SESSION_KEY, raw);
+        }
+      } catch { /* quota exceeded or private browsing */ }
       return;
     }
     if (raw.length <= SECURE_STORE_MAX_BYTES) {
@@ -103,10 +109,16 @@ class SecureSessionStorage implements SessionStorageBackend {
 
   remove(): void {
     this.cache = null;
-    if (Platform.OS !== 'web') {
+    if (Platform.OS === 'web') {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(SESSION_KEY);
+        }
+      } catch { /* ignore */ }
+    } else {
       void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+      void AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
     }
-    void AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
   }
 }
 
@@ -183,11 +195,18 @@ const auth: AuthProvider = {
 
   async getSession() {
     await sessionStorageBackend.hydrationPromise;
-    const existing = nhost.getUserSession();
-    if (existing) return toAppSession(existing);
-    // Access token may have expired while app was killed; use stored refresh token.
-    const refreshed = await nhost.refreshSession(0);
-    return toAppSession(refreshed);
+    // Force-refresh on cold start: the stored access token is likely expired.
+    // refreshSession(0) reads the refresh token from storage and requests a
+    // fresh access token from the server. If no stored session or the refresh
+    // token is revoked, it returns null (user must sign in again).
+    try {
+      const refreshed = await nhost.refreshSession(0);
+      if (refreshed) return toAppSession(refreshed);
+    } catch { /* network error — fall through to cached session */ }
+    // Fallback: return cached session so the UI shows user info while offline.
+    // The SDK middleware will retry the refresh on next API request.
+    const cached = nhost.getUserSession();
+    return toAppSession(cached);
   },
 
   onAuthStateChange(cb) {
@@ -221,6 +240,7 @@ const COMPANIES_QUERY = `
         slug: company_code
         address
         rz_pg
+        config
         created_at
         updated_at
       }
@@ -298,25 +318,76 @@ const PRODUCT_BY_BARCODE_QUERY = `
 `;
 
 const ORDERS_QUERY = `
-  query GetOrders($companyId: uuid!) {
-  order_history(
-    where: {
-      company_id: { _eq: $companyId }
-      order_items: { order_id: { _is_null: false } }
+  query GetOrders($companyId: uuid!, $limit: Int!, $offset: Int!) {
+    order_history(
+      where: { company_id: { _eq: $companyId } }
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      order_id
+      company_id
+      total
+      refund_amount
+      payment_type
+      payment_provider
+      cash_share
+      online_share
+      created_at
+      status
+      subtotal
     }
-    order_by: { created_at: desc }
-  ) {
-    order_id
-    company_id
-    total
-    payment_type
-    payment_provider
-    cash_share
-    online_share
-    created_at
-    status
-    subtotal
-    order_items {
+    order_history_aggregate(
+      where: { company_id: { _eq: $companyId } }
+    ) {
+      aggregate {
+        count
+        sum { total refund_amount cash_share online_share }
+      }
+    }
+  }
+`;
+
+const ORDERS_QUERY_WITH_DATES = `
+  query GetOrdersFiltered($companyId: uuid!, $limit: Int!, $offset: Int!, $dateFrom: timestamptz!, $dateTo: timestamptz!) {
+    order_history(
+      where: {
+        company_id: { _eq: $companyId }
+        created_at: { _gte: $dateFrom, _lte: $dateTo }
+      }
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      order_id
+      company_id
+      total
+      refund_amount
+      payment_type
+      payment_provider
+      cash_share
+      online_share
+      created_at
+      status
+      subtotal
+    }
+    order_history_aggregate(
+      where: {
+        company_id: { _eq: $companyId }
+        created_at: { _gte: $dateFrom, _lte: $dateTo }
+      }
+    ) {
+      aggregate {
+        count
+        sum { total refund_amount cash_share online_share }
+      }
+    }
+  }
+`;
+
+const ORDER_ITEMS_QUERY = `
+  query GetOrderItems($orderId: uuid!) {
+    order_items(where: { order_id: { _eq: $orderId } }) {
       article_code
       product_name
       quantity
@@ -328,7 +399,7 @@ const ORDERS_QUERY = `
       }
     }
   }
-}`;
+`;
 
 
 const CREATE_ORDER_MUTATION = `
@@ -527,7 +598,8 @@ const data: DataProvider = {
         name: company.name,
         slug: company.slug ?? undefined,
         address: company.address ?? undefined,
-        razorpay_id: company.razorpay_id ?? undefined, // Add razorpay_id to company table and to query above to enable "Online (via PG)"
+        razorpay_id: company.razorpay_id ?? undefined,
+        config: company.config ?? undefined,
         created_at: company.created_at,
         updated_at: company.updated_at,
         role,
@@ -570,46 +642,94 @@ const data: DataProvider = {
     return mapProductInventoryRow(first);
   },
 
-  async fetchOrders(companyId, _opts) {
-    const d = await gqlRequest<any>({ query: ORDERS_QUERY, variables: { companyId } });
-    const rows = d?.order_history ?? [];
-    return rows.map((o: any) => {
-      return {
-        server_order_id: o.order_id,
-        company_id: o.company_id ?? companyId,
-        subtotal: o.subtotal ?? o.total ?? 0,
-        total: o.total ?? 0,
-        currency: CURRENCY_DEFAULT,
-        payment_type: o.payment_type ?? PaymentType.CASH,
-        payment_provider: o.payment_provider ?? PaymentProvider.NONE,
-        cash_share: o.cash_share ?? 0,
-        online_share: o.online_share ?? 0,
-        status: o.status ?? 'success',
-        created_at: o.created_at ?? new Date().toISOString(),
-        items: (o.order_items ?? []).map((i: any) => ({
-          article_code: i.article_code ?? '',
-          product_name: i.product_name ?? '',
-          size: i.product?.size ?? undefined,
-          quantity: i.quantity ?? 0,
-          unit_price: i.unit_price ?? 0,
-          total: i.total ?? 0,
-          transaction_type: i.transaction_type ?? 'sale',
-        })),
-      };
+  async fetchOrders(companyId, opts: FetchOrdersOptions = {}) {
+    const { page = 1, limit = 50, dateFrom, dateTo } = opts;
+    const offset = (page - 1) * limit;
+    const hasDateFilter = Boolean(dateFrom || dateTo);
+    const d = await gqlRequest<any>({
+      query: hasDateFilter ? ORDERS_QUERY_WITH_DATES : ORDERS_QUERY,
+      variables: hasDateFilter
+        ? { companyId, limit, offset, dateFrom, dateTo }
+        : { companyId, limit, offset },
     });
+
+    const rows = d?.order_history ?? [];
+    const aggregate = d?.order_history_aggregate?.aggregate ?? {};
+
+    const orders = rows.map((o: any) => ({
+      server_order_id: o.order_id,
+      company_id: o.company_id ?? companyId,
+      subtotal: o.subtotal ?? o.total ?? 0,
+      total: o.total ?? 0,
+      refund_amount: o.refund_amount ?? 0,
+      currency: CURRENCY_DEFAULT,
+      payment_type: o.payment_type ?? PaymentType.CASH,
+      payment_provider: o.payment_provider ?? PaymentProvider.NONE,
+      cash_share: o.cash_share ?? 0,
+      online_share: o.online_share ?? 0,
+      status: o.status ?? 'success',
+      created_at: o.created_at ?? new Date().toISOString(),
+      items: [],
+    }));
+
+    return {
+      orders,
+      totalCount: aggregate.count ?? 0,
+      stats: {
+        totalRevenue: aggregate.sum?.total ?? 0,
+        totalRefunds: aggregate.sum?.refund_amount ?? 0,
+        cashTotal: aggregate.sum?.cash_share ?? 0,
+        onlineTotal: aggregate.sum?.online_share ?? 0,
+      },
+    };
+  },
+
+  async fetchOrderItems(orderId: string) {
+    const d = await gqlRequest<any>({
+      query: ORDER_ITEMS_QUERY,
+      variables: { orderId },
+    });
+    return (d?.order_items ?? []).map((i: any) => ({
+      article_code: i.article_code ?? '',
+      product_name: i.product_name ?? '',
+      size: i.product?.size ?? undefined,
+      quantity: i.quantity ?? 0,
+      unit_price: i.unit_price ?? 0,
+      total: i.total ?? 0,
+      transaction_type: i.transaction_type ?? 'sale',
+    }));
   },
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null> {
-    const orderItemsData = input.order_items.map((item) => ({
-      article_code: item.article_code,
-      product_name: item.product_name,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      transaction_type: item.transaction_type,
-      tax_percentage: item.tax_percentage ?? 0,
-      tax_amount: item.tax_amount ?? 0,
-      total: Math.abs(item.total),
-    }));
+    const orderItemsData = input.order_items.map((item) => {
+      const isRequest = item.transaction_type === 'request';
+      return {
+        article_code: item.article_code,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        transaction_type: item.transaction_type,
+        tax_percentage: item.tax_percentage ?? 0,
+        tax_amount: item.tax_amount ?? 0,
+        total: Math.abs(item.total),
+        ...(isRequest && item.request_details
+          ? {
+              order_item_requests: {
+                data: [
+                  {
+                    article_code: item.article_code,
+                    quantity: item.quantity,
+                    student_name: item.request_details.name,
+                    student_class: item.request_details.class,
+                    phone_number: item.request_details.phone ?? null,
+                    fulfillment_status: 'pending',
+                  },
+                ],
+              },
+            }
+          : {}),
+      };
+    });
     const orderData = await gqlRequest<any>({
       query: CREATE_ORDER_MUTATION,
       variables: {
@@ -623,6 +743,7 @@ const data: DataProvider = {
           cash_share: input.cash_share,
           online_share: input.online_share,
           status: input.status ?? 'success',
+          ...(input.meta ? { meta: input.meta } : {}),
           order_items: { data: orderItemsData },
         },
       },

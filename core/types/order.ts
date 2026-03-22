@@ -134,6 +134,8 @@ export interface Order {
   original_order_id?: string | null;
   subtotal: number;
   total: number;
+  /** Total refund amount on this order; 0 if no refunds. Backend column. */
+  refund_amount: number;
   currency: string;
   payment_type: PaymentTypeEnum;
   payment_provider: PaymentProviderEnum;
@@ -143,6 +145,25 @@ export interface Order {
   online_share: number;
   status: OrderStatusEnum;
   created_at: string;
+}
+
+/** Aggregated stats for a set of orders (from server aggregate query). */
+export interface OrderStats {
+  /** Sum of total across all matched orders. Backend total already accounts for refunds. */
+  totalRevenue: number;
+  /** Sum of refund_amount across all matched orders. */
+  totalRefunds: number;
+  /** Sum of cash_share across all matched orders. */
+  cashTotal: number;
+  /** Sum of online_share across all matched orders. */
+  onlineTotal: number;
+}
+
+/** Paginated response from fetchOrders. */
+export interface OrdersResponse {
+  orders: OrderWithItems[];
+  totalCount: number;
+  stats: OrderStats;
 }
 
 export interface OrderItem {
