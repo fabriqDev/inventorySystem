@@ -170,11 +170,29 @@ class AppSessionStorage implements SessionStorageBackend {
 
 export const sessionStorageBackend = new AppSessionStorage();
 
-const nhost = createClient({
-  subdomain: process.env.EXPO_PUBLIC_NHOST_SUBDOMAIN ?? 'local',
-  region: process.env.EXPO_PUBLIC_NHOST_REGION ?? 'local',
-  storage: sessionStorageBackend,
-});
+// ---------------------------------------------------------------------------
+// Lazy NHost client — created AFTER AsyncStorage hydration so the SDK sees
+// the stored session during createClient() initialisation.  On web the
+// constructor hydrates synchronously so the client is available immediately.
+// ---------------------------------------------------------------------------
+
+let _nhost: ReturnType<typeof createClient> | null = null;
+
+const nhostReady: Promise<ReturnType<typeof createClient>> =
+  sessionStorageBackend.hydrationPromise.then(() => {
+    _nhost = createClient({
+      subdomain: process.env.EXPO_PUBLIC_NHOST_SUBDOMAIN ?? 'local',
+      region: process.env.EXPO_PUBLIC_NHOST_REGION ?? 'local',
+      storage: sessionStorageBackend,
+    });
+    return _nhost;
+  });
+
+/** Returns the NHost client, awaiting hydration if needed. */
+async function nhost(): Promise<ReturnType<typeof createClient>> {
+  if (_nhost) return _nhost;
+  return nhostReady;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -207,7 +225,8 @@ function extractHasuraMessage(err: any): string {
 
 async function gqlRequest<TData>(args: { query: string; variables?: Record<string, any> }): Promise<TData> {
   try {
-    const res = await nhost.graphql.request(args);
+    const client = await nhost();
+    const res = await client.graphql.request(args);
     const body = res.body as any;
     const err = body?.errors?.[0];
     if (err) {
@@ -228,7 +247,8 @@ async function gqlRequest<TData>(args: { query: string; variables?: Record<strin
 const auth: AuthProvider = {
   async signIn(email, password) {
     try {
-      await nhost.auth.signInEmailPassword({ email, password });
+      const client = await nhost();
+      await client.auth.signInEmailPassword({ email, password });
       return { error: null };
     } catch (e) {
       return { error: e instanceof Error ? e : new Error('Sign in failed') };
@@ -236,44 +256,52 @@ const auth: AuthProvider = {
   },
 
   async signOut() {
-    await nhost.auth.signOut({});
+    const client = await nhost();
+    await client.auth.signOut({});
   },
 
   async getSession() {
-    await sessionStorageBackend.hydrationPromise;
+    const client = await nhost();
     // Force-refresh on cold start: the stored access token is likely expired.
     // refreshSession(0) reads the refresh token from storage and requests a
     // fresh access token from the server. If no stored session or the refresh
     // token is revoked, it returns null (user must sign in again).
     try {
-      const refreshed = await nhost.refreshSession(0);
+      const refreshed = await client.refreshSession(0);
       if (refreshed) return toAppSession(refreshed);
     } catch { /* network error — fall through to cached session */ }
     // Fallback: return cached session so the UI shows user info while offline.
     // The SDK middleware will retry the refresh on next API request.
-    const cached = nhost.getUserSession();
+    const cached = client.getUserSession();
     return toAppSession(cached);
   },
 
   async syncSessionFromBrowserStorage() {
     sessionStorageBackend.reloadCacheFromLocalStorage();
-    await sessionStorageBackend.hydrationPromise;
+    const client = await nhost();
     try {
-      const refreshed = await nhost.refreshSession(0);
+      const refreshed = await client.refreshSession(0);
       if (refreshed) return toAppSession(refreshed);
     } catch { /* offline — use cache */ }
-    const cached = nhost.getUserSession();
+    const cached = client.getUserSession();
     return toAppSession(cached);
   },
 
   onAuthStateChange(cb) {
-    return nhost.sessionStorage.onChange((session) => {
-      cb(toAppSession(session));
+    // Subscribe eagerly — if the client isn't ready yet the listener is
+    // registered as soon as hydration + createClient finishes.
+    let unsub: (() => void) | null = null;
+    void nhost().then((client) => {
+      unsub = client.sessionStorage.onChange((session) => {
+        cb(toAppSession(session));
+      });
     });
+    return () => { unsub?.(); };
   },
 
   async getUser() {
-    const session = nhost.getUserSession();
+    const client = await nhost();
+    const session = client.getUserSession();
     if (!session?.user) return null;
     return {
       id: session.user.id,

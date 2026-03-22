@@ -2,9 +2,12 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
+
+import { sessionStorageBackend } from '@/core/backend/nhost';
 
 import { SessionProvider, useAuth } from '@/core/context/auth-context';
 import { AppThemeProvider } from '@/core/context/theme-context';
@@ -23,6 +26,17 @@ export const unstable_settings = {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { session, loading } = useAuth();
+  const appState = useRef(AppState.currentState);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (appState.current === 'active' && next.match(/inactive|background/)) {
+        void sessionStorageBackend.flush();
+      }
+      appState.current = next;
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (!loading) {
