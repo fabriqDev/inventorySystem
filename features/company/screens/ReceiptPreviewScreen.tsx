@@ -23,6 +23,7 @@ import {
   isPrintSupported,
   type PrinterDevice,
   type ReceiptData,
+  type ReceiptLineItem,
 } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
@@ -31,7 +32,8 @@ import type { PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
 
 const SELLER_NAME = Strings.company.sellerName;
 
-type ReceiptLineItem = { product_name: string; size?: string; article_code?: string; quantity: number; unit_price: number; total: number };
+/** Matches checkout request badge color for consistency. */
+const RECEIPT_REQUEST_PURPLE = '#7B2FBE';
 
 function parseItemsJson(itemsJson: string | undefined): ReceiptLineItem[] {
   if (!itemsJson) return [];
@@ -167,18 +169,15 @@ export default function ReceiptPreviewScreen() {
           <View style={[styles.divider, { backgroundColor: colors.icon + '20' }]} />
 
           {items.map((item, index) => {
-            const isReturn = item.total < 0;
+            const isRequestLine = item.transaction_type === 'request';
+            const isRefundLine =
+              item.transaction_type === 'refund' || (!isRequestLine && item.total < 0);
             return (
               <View key={index} style={styles.itemRow}>
                 <View style={styles.itemNameRow}>
                   <ThemedText style={styles.itemName} numberOfLines={2}>
                     {item.product_name}
                   </ThemedText>
-                  {isReturn && (
-                    <View style={styles.returnBadge}>
-                      <ThemedText style={styles.returnBadgeText}>Return</ThemedText>
-                    </View>
-                  )}
                 </View>
                 {item.size?.trim() ? (
                   <ThemedText style={[styles.itemSize, { color: colors.icon }]}>
@@ -190,12 +189,28 @@ export default function ReceiptPreviewScreen() {
                     Code: {item.article_code.trim()}
                   </ThemedText>
                 ) : null}
+                {(isRefundLine || isRequestLine) && (
+                  <View style={styles.receiptBadgeRow}>
+                    {isRefundLine && (
+                      <View style={styles.refundLineBadge}>
+                        <ThemedText style={styles.refundLineBadgeText}>{Strings.company.refund}</ThemedText>
+                      </View>
+                    )}
+                    {isRequestLine && (
+                      <View style={styles.requestLineBadge}>
+                        <ThemedText style={[styles.requestLineBadgeText, { color: RECEIPT_REQUEST_PURPLE }]}>
+                          {Strings.company.requestBadge}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+                )}
                 <View style={styles.itemMeta}>
                   <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
                     {item.quantity} × {formatAmount(item.unit_price)}
                   </ThemedText>
-                  <ThemedText style={[styles.itemTotal, isReturn && { color: '#C62828' }]}>
-                    {isReturn ? '-' : ''}{formatAmount(Math.abs(item.total))}
+                  <ThemedText style={[styles.itemTotal, isRefundLine && { color: '#C62828' }]}>
+                    {isRefundLine ? '-' : ''}{formatAmount(Math.abs(item.total))}
                   </ThemedText>
                 </View>
               </View>
@@ -309,16 +324,33 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     flexShrink: 1,
   },
-  returnBadge: {
+  receiptBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  refundLineBadge: {
     backgroundColor: '#FFEBEE',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderRadius: 6,
   },
-  returnBadgeText: {
+  refundLineBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#C62828',
+  },
+  requestLineBadge: {
+    backgroundColor: '#EDE7F6',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  requestLineBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   itemSize: {
     fontSize: 12,

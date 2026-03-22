@@ -4,6 +4,12 @@ import type { OrderStatusEnum, OrderWithItems, OrdersResponse, PaymentProviderEn
 import type { OrderItem } from '@/core/types/order';
 import type { Product, ProductListResponse } from '@/core/types/product';
 import type { InventoryTransfer } from '@/core/types/transfer';
+import type {
+  FetchRequestedOrderLinesOptions,
+  FetchRequestedOrdersOptions,
+  RequestedOrderLinesResponse,
+  RequestedOrdersResponse,
+} from '@/core/types/requested-orders';
 
 export interface AppSession {
   accessToken: string;
@@ -21,6 +27,11 @@ export interface AuthProvider {
   getSession(): Promise<AppSession | null>;
   onAuthStateChange(cb: (session: AppSession | null) => void): () => void;
   getUser(): Promise<{ id: string; email?: string; displayName?: string; phoneNumber?: string } | null>;
+  /**
+   * Web: `localStorage` was updated from another tab (or extension). Re-load cache and refresh.
+   * No-op on native; still safe to call.
+   */
+  syncSessionFromBrowserStorage(): Promise<AppSession | null>;
 }
 
 export interface FetchProductsOptions {
@@ -61,13 +72,6 @@ export interface CreateOrderItemInput {
   request_details?: RequestDetails;
 }
 
-/** Optional order-level metadata kept for legacy / display purposes. */
-export interface OrderMeta {
-  child_name: string;
-  child_class: string;
-  parent_phone?: string;
-}
-
 export interface CreateOrderInput {
   company_id: string;
   user_id: string;
@@ -82,8 +86,6 @@ export interface CreateOrderInput {
   /** Order status: 'success' for immediate payments, 'pending' for PG flows awaiting confirmation. */
   status?: OrderStatusEnum;
   order_items: CreateOrderItemInput[];
-  /** Present when order contains requested items; carries child/class/phone info. */
-  meta?: OrderMeta;
 }
 
 export interface CreateOrderResult {
@@ -155,6 +157,15 @@ export interface DataProvider {
   acceptTransfer(transferId: string): Promise<InventoryTransfer | null>;
   rejectTransfer(transferId: string): Promise<InventoryTransfer | null>;
   cancelTransfer(transferId: string): Promise<InventoryTransfer | null>;
+  fetchRequestedOrders(
+    companyId: string,
+    opts: FetchRequestedOrdersOptions,
+  ): Promise<RequestedOrdersResponse>;
+  fetchRequestedOrderLines(
+    orderId: string,
+    opts: FetchRequestedOrderLinesOptions,
+  ): Promise<RequestedOrderLinesResponse>;
+  fulfillOrderRequests(orderId: string): Promise<{ success: boolean; affected_rows: number }>;
 }
 
 export interface BackendProvider {

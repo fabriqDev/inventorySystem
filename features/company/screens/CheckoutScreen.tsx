@@ -20,7 +20,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createOrder, createRazorpayOrder, updateOrderStatus, verifyRazorpayPayment } from '@/core/api/orders';
-import type { CreateOrderInput, CreateOrderItemInput, OrderMeta } from '@/core/backend/types';
+import type { CreateOrderInput, CreateOrderItemInput } from '@/core/backend/types';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -80,6 +80,8 @@ function CheckoutItemCell({
   const totalAmount = formatAmount(Math.abs(lineTotal));
   const formulaPrefix = `${item.quantity} × ${unitAmount} =`;
   const size = item.product.size?.trim();
+  const codeLabel =
+    item.product.scan_code?.trim() || item.product.article_code?.trim() || '';
 
   return (
     <View
@@ -94,16 +96,6 @@ function CheckoutItemCell({
             <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.itemName}>
               {item.product.name}
             </ThemedText>
-            {isRefund && (
-              <View style={[styles.refundBadge, { backgroundColor: '#FFEBEE' }]}>
-                <ThemedText style={styles.refundBadgeText}>Refund</ThemedText>
-              </View>
-            )}
-            {isRequest && (
-              <View style={[styles.refundBadge, { backgroundColor: '#EDE7F6' }]}>
-                <ThemedText style={[styles.refundBadgeText, { color: CHECKOUT_REQUEST_PURPLE }]}>Request</ThemedText>
-              </View>
-            )}
           </View>
           {size ? (
             <View style={styles.checkoutSizeRow}>
@@ -115,11 +107,27 @@ function CheckoutItemCell({
               </ThemedText>
             </View>
           ) : null}
-          {item.product.scan_code?.trim() ? (
+          {codeLabel ? (
             <ThemedText style={[styles.checkoutArticleCode, { color: colors.icon }]}>
-              Code: {item.product.scan_code.trim()}
+              Code: {codeLabel}
             </ThemedText>
           ) : null}
+          {(isRefund || isRequest) && (
+            <View style={styles.checkoutBadgeRow}>
+              {isRefund && (
+                <View style={[styles.refundBadge, { backgroundColor: '#FFEBEE' }]}>
+                  <ThemedText style={styles.refundBadgeText}>{Strings.company.refund}</ThemedText>
+                </View>
+              )}
+              {isRequest && (
+                <View style={[styles.refundBadge, { backgroundColor: '#EDE7F6' }]}>
+                  <ThemedText style={[styles.refundBadgeText, { color: CHECKOUT_REQUEST_PURPLE }]}>
+                    {Strings.company.requestBadge}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+          )}
         </View>
         <View style={styles.checkoutFormulaRow}>
           <ThemedText
@@ -164,10 +172,8 @@ function cartToOrderItems(
   });
 }
 
-/** Cart items in receipt shape for passing to Receipt Preview (includes article_code and size for print). */
-function cartToReceiptItems(
-  items: CartItem[]
-): { product_name: string; size?: string; article_code?: string; quantity: number; unit_price: number; total: number }[] {
+/** Cart items in receipt shape for passing to Receipt Preview (includes article_code, size, and line type for print). */
+function cartToReceiptItems(items: CartItem[]) {
   return items.map((item) => {
     const lineTotal = roundMoney(item.unit_price * item.quantity);
     return {
@@ -177,6 +183,7 @@ function cartToReceiptItems(
       quantity: item.quantity,
       unit_price: item.unit_price,
       total: item.transactionType === 'refund' ? -lineTotal : lineTotal,
+      transaction_type: item.transactionType,
     };
   });
 }
@@ -343,7 +350,8 @@ export default function CheckoutScreen() {
   } | null>(null);
 
   const userId = session?.user?.id ?? '';
-  const showOnlinePG = selectedCompany?.razorpay_id != null && selectedCompany?.razorpay_id !== '';
+  // Razorpay flow is temporarily disabled — force false regardless of backend config
+  const showOnlinePG = false; // selectedCompany?.razorpay_id != null && selectedCompany?.razorpay_id !== '';
 
   const availableStock = useMemo(() => {
     const products = getCachedProducts(companyId);
@@ -416,13 +424,14 @@ export default function CheckoutScreen() {
       setSubmitting(true);
       const payment = getOrderPaymentForCheckout(button, total, splitAmounts);
       try {
-        const meta: OrderMeta | undefined = childName
-          ? {
-              child_name: childName,
-              child_class: childClass ?? '',
-              parent_phone: parentPhone || undefined,
-            }
-          : undefined;
+        const requestDetailsForOrder =
+          childName?.trim()
+            ? {
+                name: childName.trim(),
+                class: (childClass ?? '').trim(),
+                phone: parentPhone?.trim() || undefined,
+              }
+            : undefined;
 
         const orderInput: CreateOrderInput = {
           company_id: companyId,
@@ -434,8 +443,7 @@ export default function CheckoutScreen() {
           payment_provider: payment.payment_provider,
           cash_share: payment.cash_share,
           online_share: payment.online_share,
-          order_items: cartToOrderItems(items, meta ? { name: meta.child_name, class: meta.child_class, phone: meta.parent_phone } : undefined),
-          meta,
+          order_items: cartToOrderItems(items, requestDetailsForOrder),
         };
         const result = await createOrder(orderInput, useMockData);
         if (result == null) {
@@ -567,9 +575,14 @@ export default function CheckoutScreen() {
     const payment = getOrderPaymentForCheckout(CheckoutButton.RAZORPAY, total);
 
     try {
-      const rzMeta: OrderMeta | undefined = childName
-        ? { child_name: childName, child_class: childClass ?? '', parent_phone: parentPhone || undefined }
-        : undefined;
+      const requestDetailsForOrder =
+        childName?.trim()
+          ? {
+              name: childName.trim(),
+              class: (childClass ?? '').trim(),
+              phone: parentPhone?.trim() || undefined,
+            }
+          : undefined;
 
       const orderInput: CreateOrderInput = {
         company_id: companyId,
@@ -582,8 +595,7 @@ export default function CheckoutScreen() {
         cash_share: payment.cash_share,
         online_share: payment.online_share,
         status: 'pending',
-        order_items: cartToOrderItems(items, rzMeta ? { name: rzMeta.child_name, class: rzMeta.child_class, phone: rzMeta.parent_phone } : undefined),
-        meta: rzMeta,
+        order_items: cartToOrderItems(items, requestDetailsForOrder),
       };
       const result = await createOrder(orderInput, useMockData);
       if (!result) {
@@ -1081,12 +1093,13 @@ const styles = StyleSheet.create({
   /* ---- Item cards (checkout: name + article code, right: qty × price = subtotal) ---- */
   itemsSection: { gap: 10, marginBottom: 16 },
   itemCard: { borderRadius: 12, borderWidth: 1, padding: 12 },
-  checkoutItemRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  checkoutItemRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   checkoutItemLeft: { flex: 1, minWidth: 0, gap: 2 },
   itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   itemName: { flex: 1 },
   checkoutSizeRow: { flexDirection: 'row', alignItems: 'center', gap: 0 },
   checkoutArticleCode: { fontSize: 12 },
+  checkoutBadgeRow: { marginTop: 6, alignSelf: 'flex-start' },
   checkoutFormulaRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'flex-end', flexShrink: 0 },
   checkoutFormula: { fontSize: 13 },
   checkoutFormulaPrefix: { fontWeight: '400', textAlign: 'right' },

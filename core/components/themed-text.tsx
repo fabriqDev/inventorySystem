@@ -6,6 +6,8 @@ export type ThemedTextProps = TextProps & {
   lightColor?: string;
   darkColor?: string;
   type?: 'default' | 'title' | 'defaultSemiBold' | 'subtitle' | 'link';
+  /** Android: extra top/bottom padding on text; false helps tab/pill labels not clip. */
+  includeFontPadding?: boolean;
 };
 
 export function ThemedText({
@@ -13,6 +15,7 @@ export function ThemedText({
   lightColor,
   darkColor,
   type = 'default',
+  includeFontPadding,
   ...rest
 }: ThemedTextProps) {
   const color = useThemeColor({ light: lightColor, dark: darkColor }, 'text');
@@ -28,6 +31,7 @@ export function ThemedText({
         type === 'link' ? styles.link : undefined,
         style,
       ]}
+      {...(includeFontPadding !== undefined ? { includeFontPadding } : {})}
       {...rest}
     />
   );

@@ -1,4 +1,5 @@
-import { useCallback, useRef } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -8,7 +9,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
@@ -17,8 +17,9 @@ import { Colors } from '@/core/constants/theme';
 import { useCompany } from '@/core/context/company-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import type { TileId } from '@/core/types/tiles';
 import { Strings } from '@/core/strings';
+import type { TileId } from '@/core/types/tiles';
+import { TileIds } from '@/core/types/tiles';
 
 type IconName = Parameters<typeof IconSymbol>[0]['name'];
 
@@ -48,15 +49,31 @@ const TILE_CONFIG: Record<TileId, { label: string; icon: IconName; description: 
     icon: 'plus.circle.fill',
     description: Strings.company.addProductsDescription,
   },
+  requested_items_tile: {
+    label: Strings.company.requestedItems,
+    icon: 'list.bullet.clipboard.fill',
+    description: Strings.company.requestedItemsDescription,
+  },
 };
 
 const TILE_ROUTES: Record<TileId, string> = {
-  inventory: 'inventory',
-  sale_history: 'orders',
-  new_sale: 'create-order',
-  inventory_transfer: 'inventory-transfer',
-  add_products: 'add-products',
+  [TileIds.INVENTORY]: 'inventory',
+  [TileIds.SALE_HISTORY]: 'orders',
+  [TileIds.NEW_SALE]: 'create-order',
+  [TileIds.INVENTORY_TRANSFER]: 'inventory-transfer',
+  [TileIds.ADD_PRODUCTS]: 'add-products',
+  [TileIds.REQUESTED_ITEMS]: 'requested-items',
 };
+
+/** Client-side order so “Create Order” stays above “Requested Items” regardless of API array order. */
+const TILE_DISPLAY_ORDER: TileId[] = [
+  TileIds.NEW_SALE,
+  TileIds.REQUESTED_ITEMS,
+  TileIds.SALE_HISTORY,
+  TileIds.INVENTORY,
+  TileIds.INVENTORY_TRANSFER,
+  TileIds.ADD_PRODUCTS,
+];
 
 const HEADER_GAP = 24;
 
@@ -130,8 +147,13 @@ export default function TilesScreen() {
     }, [id, refreshProducts]),
   );
 
-  const tiles = selectedCompany?.visible_tiles ?? [];
-  const listData: string[] = tiles;
+  const listData = useMemo(() => {
+    const raw = selectedCompany?.visible_tiles ?? [];
+    const set = new Set(raw);
+    const ordered = TILE_DISPLAY_ORDER.filter((t) => set.has(t));
+    const rest = raw.filter((t) => !TILE_DISPLAY_ORDER.includes(t as TileId));
+    return [...ordered, ...rest];
+  }, [selectedCompany?.visible_tiles]);
 
   const handleTilePress = useCallback(
     (tileId: TileId) => {

@@ -50,6 +50,7 @@ const MAPPING = {
   'creditcard': 'credit-card',
   'printer.fill': 'print',
   'line.3.horizontal.decrease.circle': 'filter-list',
+  'list.bullet.clipboard.fill': 'assignment',
 } as IconMapping;
 
 /**

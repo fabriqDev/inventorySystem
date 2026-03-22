@@ -21,11 +21,20 @@ import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { isMobileOrTabletWeb } from '@/core/services/device';
+import { Strings } from '@/core/strings';
+import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
 import type { CartTransactionType } from '@/core/types/cart';
 
 /** Scanner takes 1/3 of screen height and is centered; leaves room for header and search below. */
 const CAMERA_HEIGHT_RATIO = 1 / 3;
+
+/** Block sale adds only when we know stock from cache and available qty is 0. */
+function cannotAddDueToZeroStock(mode: CartTransactionType, product: Product): boolean {
+  if (mode !== 'sale') return false;
+  if (product.quantity == null && product.reserved == null) return false;
+  return getAvailableStock(product) <= 0;
+}
 
 interface Props {
   visible: boolean;
@@ -44,7 +53,8 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
   const { show_barcode: showBarcode } = useCompanyConfig();
 
   const [searchVisible, setSearchVisible] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
+  /** Shown above both main and search modals (scan not found, zero stock, etc.). */
+  const [overlayError, setOverlayError] = useState<{ title: string; hint: string } | null>(null);
   const lastScannedRef = useRef<string | null>(null);
   const scanCooldownRef = useRef(false);
 
@@ -65,14 +75,29 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
 
   const title = mode === 'refund' ? 'Refund item' : 'Add item';
 
-  const handleProductAdded = useCallback(
-    (product: Product) => {
+  const tryAddProduct = useCallback(
+    (product: Product): boolean => {
+      if (cannotAddDueToZeroStock(mode, product)) {
+        setOverlayError({
+          title: Strings.company.couldNotAddInsufficientQuantity,
+          hint: '',
+        });
+        return false;
+      }
       addItem(product, { transactionType: mode });
       setSearchVisible(false);
       onItemAdded();
       onClose();
+      return true;
     },
     [addItem, mode, onItemAdded, onClose],
+  );
+
+  const handleProductAdded = useCallback(
+    (product: Product) => {
+      tryAddProduct(product);
+    },
+    [tryAddProduct],
   );
 
   const handleBarcodeScanned = useCallback(
@@ -86,17 +111,18 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
         lastScannedRef.current = null;
       }, 2000);
 
-      setScanError(null);
+      setOverlayError(null);
       const fromCache = findByBarcode(companyId, barcode);
       if (fromCache) {
-        addItem(fromCache, { transactionType: mode });
-        onItemAdded();
-        onClose();
+        tryAddProduct(fromCache);
         return;
       }
-      setScanError('Product not found');
+      setOverlayError({
+        title: Strings.company.productNotFound,
+        hint: Strings.company.productNotFoundHint,
+      });
     },
-    [companyId, findByBarcode, addItem, mode, onItemAdded, onClose],
+    [companyId, findByBarcode, tryAddProduct],
   );
 
   const handleBarcodeScanResult = useCallback(
@@ -109,7 +135,7 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
 
   useEffect(() => {
     if (!visible) {
-      setScanError(null);
+      setOverlayError(null);
       setSearchVisible(false);
     } else if (isSearchOnly) {
       setSearchVisible(true);
@@ -143,34 +169,6 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
 
           {!isSearchOnly && (
             <>
-              {scanError ? (
-                <Pressable
-                  style={[styles.errorOverlay, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
-                  onPress={() => setScanError(null)}
-                >
-                  <Pressable
-                    style={[styles.errorPopup, { backgroundColor: colors.background, borderColor: colors.icon }]}
-                    onPress={(e) => e.stopPropagation()}
-                  >
-                    <View style={styles.errorIconWrap}>
-                      <MaterialIcons name="error-outline" size={40} color="#C62828" />
-                    </View>
-                    <ThemedText type="subtitle" style={styles.errorPopupTitle}>
-                      {scanError}
-                    </ThemedText>
-                    <ThemedText style={[styles.errorPopupHint, { color: colors.icon }]}>
-                      Try another barcode or search by name.
-                    </ThemedText>
-                    <Pressable
-                      onPress={() => setScanError(null)}
-                      style={[styles.errorPopupBtn, { backgroundColor: colors.tint }]}
-                    >
-                      <ThemedText style={styles.errorPopupBtnText}>OK</ThemedText>
-                    </Pressable>
-                  </Pressable>
-                </Pressable>
-              ) : null}
-
               <View style={styles.scannerCenterWrap}>
                 <View style={[styles.cameraSection, { height: Dimensions.get('window').height * CAMERA_HEIGHT_RATIO }]}>
                   {cameraAvailable ? (
@@ -228,6 +226,41 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
             showQuantity={mode !== 'request'}
           />
         </ThemedView>
+      </Modal>
+
+      <Modal
+        visible={overlayError != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOverlayError(null)}
+      >
+        <Pressable
+          style={[styles.errorOverlay, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
+          onPress={() => setOverlayError(null)}
+        >
+          <Pressable
+            style={[styles.errorPopup, { backgroundColor: colors.background, borderColor: colors.icon }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.errorIconWrap}>
+              <MaterialIcons name="error-outline" size={40} color="#C62828" />
+            </View>
+            <ThemedText type="subtitle" style={styles.errorPopupTitle}>
+              {overlayError?.title}
+            </ThemedText>
+            {overlayError?.hint ? (
+              <ThemedText style={[styles.errorPopupHint, { color: colors.icon }]}>
+                {overlayError.hint}
+              </ThemedText>
+            ) : null}
+            <Pressable
+              onPress={() => setOverlayError(null)}
+              style={[styles.errorPopupBtn, { backgroundColor: colors.tint }]}
+            >
+              <ThemedText style={styles.errorPopupBtnText}>OK</ThemedText>
+            </Pressable>
+          </Pressable>
+        </Pressable>
       </Modal>
     </>
   );

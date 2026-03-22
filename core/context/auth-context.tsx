@@ -1,3 +1,6 @@
+import { DEFAULT_SESSION_KEY } from '@nhost/nhost-js/session';
+import { Platform } from 'react-native';
+
 import { backend } from '@/core/backend';
 import type { AppSession } from '@/core/backend/types';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
@@ -27,6 +30,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
 
     return unsubscribe;
+  }, []);
+
+  // Web: same-origin tabs share localStorage. The `storage` event fires in *other* tabs when
+  // one tab signs in/out or refreshes the session — keep this tab’s session in sync.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== DEFAULT_SESSION_KEY) return;
+      void backend.auth.syncSessionFromBrowserStorage().then((s) => {
+        setSession(s);
+        setLoading(false);
+      });
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {

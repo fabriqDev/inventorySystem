@@ -53,7 +53,7 @@ const FILTERS: { label: string; value: FilterValue }[] = [
   { label: Strings.company.success, value: 'success' },
   { label: Strings.company.failed, value: 'failed' },
   { label: Strings.company.pending, value: 'pending' },
-  { label: 'Refunded Orders', value: 'refund' },
+  { label: Strings.company.refundTab, value: 'refund' },
 ];
 
 const STATUS_STYLE: Record<
@@ -422,27 +422,34 @@ export default function OrdersScreen() {
         </View>
       </View>
 
-      {/* Filter tabs */}
+      {/* Filter tabs — flexShrink:0 on chips so they don’t collapse (esp. web / narrow layouts) */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
+        bounces={false}
+        contentContainerStyle={styles.filtersContent}
         style={styles.filtersScroll}
       >
-        {FILTERS.map((f) => {
+        {FILTERS.map((f, chipIndex) => {
           const active = filter === f.value;
           return (
             <Pressable
               key={f.value}
               onPress={() => setFilter(f.value)}
-              style={[
+              style={({ pressed }) => [
                 styles.chip,
+                chipIndex < FILTERS.length - 1 && styles.chipSpacing,
                 active
                   ? { backgroundColor: colors.tint }
-                  : { backgroundColor: colors.icon + '12' },
+                  : { backgroundColor: colors.icon + '12', borderWidth: 1, borderColor: colors.icon + '22' },
+                pressed && { opacity: 0.85 },
               ]}
             >
-              <ThemedText style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}>
+              <ThemedText
+                numberOfLines={1}
+                includeFontPadding={false}
+                style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}
+              >
                 {f.label}
               </ThemedText>
             </Pressable>
@@ -451,27 +458,34 @@ export default function OrdersScreen() {
       </ScrollView>
 
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.tint} />
+        <View style={styles.listArea}>
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.tint} />
+          </View>
         </View>
       ) : filteredOrders.length === 0 ? (
-        <View style={styles.center}>
-          <ThemedText style={{ color: colors.icon }}>{Strings.company.noOrdersFound}</ThemedText>
+        <View style={styles.listArea}>
+          <View style={styles.center}>
+            <ThemedText style={{ color: colors.icon }}>{Strings.company.noOrdersFound}</ThemedText>
+          </View>
         </View>
       ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.server_order_id ?? ''}
-          renderItem={renderOrder}
-          renderSectionHeader={renderSectionHeader}
-          contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          showsVerticalScrollIndicator={false}
-          stickySectionHeadersEnabled
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={renderFooter}
-        />
+        <View style={styles.listArea}>
+          <SectionList
+            sections={sections}
+            keyExtractor={(item, index) => item.server_order_id ?? `order-${index}`}
+            renderItem={renderOrder}
+            renderSectionHeader={renderSectionHeader}
+            style={styles.sectionList}
+            contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
+            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            showsVerticalScrollIndicator={false}
+            stickySectionHeadersEnabled
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.3}
+            ListFooterComponent={renderFooter}
+          />
+        </View>
       )}
 
       {/* Order detail modal */}
@@ -547,6 +561,19 @@ export default function OrdersScreen() {
                       {line.size?.trim() ? (
                         <ThemedText style={{ color: colors.icon, fontSize: 12 }}>Size: {line.size.trim()}</ThemedText>
                       ) : null}
+                      {line.transaction_type === 'request' ? (
+                        <View style={[styles.detailItemTxnBadge, { backgroundColor: '#FFF3E0' }]}>
+                          <ThemedText style={[styles.detailItemTxnBadgeText, { color: '#E65100' }]}>
+                            {Strings.company.itemLineRequested}
+                          </ThemedText>
+                        </View>
+                      ) : line.transaction_type === 'refund' ? (
+                        <View style={[styles.detailItemTxnBadge, { backgroundColor: '#FFEBEE' }]}>
+                          <ThemedText style={[styles.detailItemTxnBadgeText, { color: '#C62828' }]}>
+                            {Strings.company.itemLineRefunded}
+                          </ThemedText>
+                        </View>
+                      ) : null}
                     </View>
                     <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
                       {line.quantity} × {formatPrice(line.unit_price, selectedOrder.currency)} = {formatPrice(line.total, selectedOrder.currency)}
@@ -607,7 +634,10 @@ export default function OrdersScreen() {
                       : { backgroundColor: 'transparent', borderColor: colors.icon + '40' },
                   ]}
                 >
-                  <ThemedText style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}>
+                  <ThemedText
+                    includeFontPadding={false}
+                    style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}
+                  >
                     {p.label}
                   </ThemedText>
                 </Pressable>
@@ -710,23 +740,45 @@ const styles = StyleSheet.create({
   statChipValue: { fontSize: 15, fontWeight: '700' },
   statChipDivider: { width: 1, alignSelf: 'stretch' },
 
-  // Filter chips
-  filtersScroll: { maxHeight: 52 },
-  filters: {
+  // Filter chips — no maxHeight on horizontal ScrollView (Android clips text when content is taller)
+  filtersScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    width: '100%',
+  },
+  filtersContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    gap: 8,
-    flexDirection: 'row',
+    paddingRight: 20,
   },
   chip: {
+    flexShrink: 0,
+    flexGrow: 0,
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 10,
     borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  chipText: { fontSize: 13, fontWeight: '600' },
+  chipSpacing: {
+    marginRight: 8,
+  },
+  /** Explicit lineHeight + includeFontPadding=false avoids Android cutting off pill labels. */
+  chipText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
 
-  // List
-  list: { paddingHorizontal: 16, paddingBottom: 24 },
+  // List — flex:1 + minHeight:0 so SectionList gets height on web and native
+  listArea: {
+    flex: 1,
+    minHeight: 0,
+    width: '100%',
+  },
+  sectionList: {
+    flex: 1,
+    width: '100%',
+  },
+  list: { paddingHorizontal: 16, paddingBottom: 24, flexGrow: 1 },
   separator: { height: 8 },
   loadMoreFooter: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, paddingVertical: 16 },
 
@@ -799,6 +851,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     gap: 8,
+  },
+  detailItemTxnBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  detailItemTxnBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   itemsLoading: { alignItems: 'center', paddingVertical: 24 },
   detailTotalRow: {

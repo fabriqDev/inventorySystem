@@ -10,9 +10,15 @@ import { Platform } from 'react-native';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
+import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/constants/order-item-request-fields';
 import { toast } from '@/core/services/toast';
 import { PaymentProvider, PaymentType } from '@/core/types/order';
 import type { Product } from '@/core/types/product';
+import type {
+  RequestedOrderLine,
+  RequestedOrderListRow,
+} from '@/core/types/requested-orders';
+import { TileIds } from '@/core/types/tiles';
 import type {
   AppSession,
   AuthProvider,
@@ -34,13 +40,27 @@ const SESSION_KEY = DEFAULT_SESSION_KEY;
 const SECURE_STORE_MAX_BYTES = 2048;
 
 // ---------------------------------------------------------------------------
-// Secure session storage: SecureStore on native (when payload fits), else AsyncStorage.
-// Exposes hydrationPromise so the app can wait for restore before reading session.
+// Session storage — AsyncStorage is ALWAYS the primary store on native.
+//
+// Prior code only wrote to SecureStore for small payloads and DELETED the
+// AsyncStorage copy.  Two problems:
+//   1. Android Keystore (SecureStore) can silently return null after a process
+//      kill on some devices → session lost → user logged out.
+//   2. All writes were fire-and-forget (void).  NHost rotates refresh tokens
+//      on each use; if the app was killed before the async write completed,
+//      the on-disk token was already revoked → 401 → SDK clears storage.
+//
+// Rules now:
+//   • AsyncStorage is ALWAYS written first and NEVER deleted by set().
+//   • SecureStore is a best-effort encrypted copy (small payloads only).
+//   • Reads check AsyncStorage first; SecureStore is a fallback only.
+//   • set() awaits the AsyncStorage write so it is as durable as possible.
 // ---------------------------------------------------------------------------
 
 class SecureSessionStorage implements SessionStorageBackend {
   private cache: Session | null = null;
   readonly hydrationPromise: Promise<void>;
+  private writeGen = 0;
 
   constructor() {
     // On web, read localStorage synchronously so the SDK has the session during
@@ -60,24 +80,30 @@ class SecureSessionStorage implements SessionStorageBackend {
 
   private async hydrateNative(): Promise<void> {
     try {
-      const fromSecure = await SecureStore.getItemAsync(SESSION_KEY);
+      const [fromAsync, fromSecure] = await Promise.all([
+        AsyncStorage.getItem(SESSION_KEY).catch(() => null),
+        SecureStore.getItemAsync(SESSION_KEY).catch(() => null),
+      ]);
+
+      // AsyncStorage is primary.
+      if (fromAsync) {
+        try {
+          this.cache = JSON.parse(fromAsync) as Session;
+          return;
+        } catch { /* corrupt JSON — fall through */ }
+      }
+
+      // Fallback: SecureStore (might still have a session from an older build).
       if (fromSecure) {
         try {
           this.cache = JSON.parse(fromSecure) as Session;
-        } catch {
-          this.cache = null;
-        }
+          // Migrate to AsyncStorage so the next cold start doesn't depend on Keystore.
+          void AsyncStorage.setItem(SESSION_KEY, fromSecure).catch(() => {});
+          return;
+        } catch { /* corrupt */ }
       }
-      if (this.cache === null) {
-        const fromAsync = await AsyncStorage.getItem(SESSION_KEY);
-        if (fromAsync) {
-          try {
-            this.cache = JSON.parse(fromAsync) as Session;
-          } catch {
-            this.cache = null;
-          }
-        }
-      }
+
+      this.cache = null;
     } catch {
       this.cache = null;
     }
@@ -90,6 +116,7 @@ class SecureSessionStorage implements SessionStorageBackend {
   set(value: Session): void {
     this.cache = value;
     const raw = JSON.stringify(value);
+
     if (Platform.OS === 'web') {
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -98,17 +125,28 @@ class SecureSessionStorage implements SessionStorageBackend {
       } catch { /* quota exceeded or private browsing */ }
       return;
     }
-    if (raw.length <= SECURE_STORE_MAX_BYTES) {
-      void SecureStore.setItemAsync(SESSION_KEY, raw).catch(() => {
-        void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
-      });
-    } else {
-      void AsyncStorage.setItem(SESSION_KEY, raw).catch(() => {});
-    }
+
+    // Native: ALWAYS write AsyncStorage first (primary), then SecureStore (bonus).
+    const gen = ++this.writeGen;
+    void (async () => {
+      try {
+        await AsyncStorage.setItem(SESSION_KEY, raw);
+      } catch { /* extremely unlikely */ }
+
+      if (gen !== this.writeGen) return;
+
+      try {
+        const bytes = new TextEncoder().encode(raw).length;
+        if (bytes <= SECURE_STORE_MAX_BYTES) {
+          await SecureStore.setItemAsync(SESSION_KEY, raw);
+        }
+      } catch { /* SecureStore failure is non-fatal */ }
+    })();
   }
 
   remove(): void {
     this.cache = null;
+    ++this.writeGen;
     if (Platform.OS === 'web') {
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -116,8 +154,18 @@ class SecureSessionStorage implements SessionStorageBackend {
         }
       } catch { /* ignore */ }
     } else {
-      void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
       void AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
+      void SecureStore.deleteItemAsync(SESSION_KEY).catch(() => {});
+    }
+  }
+
+  reloadCacheFromLocalStorage(): void {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage?.getItem(SESSION_KEY) ?? null;
+      this.cache = raw ? (JSON.parse(raw) as Session) : null;
+    } catch {
+      this.cache = null;
     }
   }
 }
@@ -190,7 +238,7 @@ const auth: AuthProvider = {
   },
 
   async signOut() {
-    await nhost.auth.signOut();
+    await nhost.auth.signOut({});
   },
 
   async getSession() {
@@ -205,6 +253,17 @@ const auth: AuthProvider = {
     } catch { /* network error — fall through to cached session */ }
     // Fallback: return cached session so the UI shows user info while offline.
     // The SDK middleware will retry the refresh on next API request.
+    const cached = nhost.getUserSession();
+    return toAppSession(cached);
+  },
+
+  async syncSessionFromBrowserStorage() {
+    sessionStorageBackend.reloadCacheFromLocalStorage();
+    await sessionStorageBackend.hydrationPromise;
+    try {
+      const refreshed = await nhost.refreshSession(0);
+      if (refreshed) return toAppSession(refreshed);
+    } catch { /* offline — use cache */ }
     const cached = nhost.getUserSession();
     return toAppSession(cached);
   },
@@ -437,6 +496,82 @@ const UPDATE_ORDER_STATUS_MUTATION = `
   }
 `;
 
+/** Dynamic where built in TS; list + aggregate share the same filter. */
+const REQUEST_ORDERS_BUNDLED_QUERY = `
+  query GetRequestsBundledByOrder($where: order_history_bool_exp!, $limit: Int!, $offset: Int!) {
+    order_history(
+      where: $where
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      order_id
+      created_at
+      total
+      order_items(where: { transaction_type: { _eq: "request" } }) {
+        product_name
+        order_item_requests {
+          student_name
+          student_class
+          phone_number
+          fulfillment_status
+        }
+      }
+    }
+    order_history_aggregate(where: $where) {
+      aggregate {
+        count
+      }
+    }
+  }
+`;
+
+const REQUEST_ORDER_LINES_QUERY = `
+  query GetRequestedOrderLines($orderId: uuid!, $limit: Int!, $offset: Int!) {
+    order_items_aggregate(
+      where: { order_id: { _eq: $orderId }, transaction_type: { _eq: "request" } }
+    ) {
+      aggregate {
+        count
+      }
+    }
+    order_items(
+      where: { order_id: { _eq: $orderId }, transaction_type: { _eq: "request" } }
+      order_by: [{ article_code: asc }, { product_name: asc }]
+      limit: $limit
+      offset: $offset
+    ) {
+      article_code
+      product_name
+      quantity
+      unit_price
+      total
+      order_item_requests {
+        student_name
+        student_class
+        phone_number
+        fulfillment_status
+      }
+    }
+  }
+`;
+
+const FULFILL_ORDER_REQUESTS_MUTATION = `
+  mutation FulfillOrderItemRequests($orderId: uuid!) {
+    update_order_item_requests(
+      where: {
+        _and: [
+          { fulfillment_status: { _eq: "pending" } }
+          { order_item: { order_id: { _eq: $orderId }, transaction_type: { _eq: "request" } } }
+        ]
+      }
+      _set: { fulfillment_status: "fulfilled" }
+    ) {
+      affected_rows
+    }
+  }
+`;
+
 const PENDING_TRANSFERS_QUERY = `
   query GetPendingTransfers($companyId: uuid!) {
     inventory_transfers(
@@ -536,8 +671,124 @@ const UPDATE_TRANSFER_MUTATION = `
 }
 `;
 
+type FulfillmentTabArg = 'unfulfilled' | 'fulfilled';
 
+function escapeIlikePattern(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
 
+function buildOrderItemRequestSearchAnd(
+  filters: RequestItemSearchPayload,
+): Record<string, unknown>[] {
+  const parts: Record<string, unknown>[] = [];
+  const name = filters[OrderItemRequestField.STUDENT_NAME]?.trim();
+  const cls = filters[OrderItemRequestField.STUDENT_CLASS]?.trim();
+  const phone = filters[OrderItemRequestField.PHONE_NUMBER]?.trim();
+  if (name) {
+    parts.push({ [OrderItemRequestField.STUDENT_NAME]: { _ilike: `%${escapeIlikePattern(name)}%` } });
+  }
+  if (cls) {
+    parts.push({ [OrderItemRequestField.STUDENT_CLASS]: { _ilike: `%${escapeIlikePattern(cls)}%` } });
+  }
+  if (phone) {
+    parts.push({ [OrderItemRequestField.PHONE_NUMBER]: { _ilike: `%${escapeIlikePattern(phone)}%` } });
+  }
+  return parts;
+}
+
+/** Builds Hasura `order_history_bool_exp` for requested-orders list (tabs + optional field filters). */
+function buildRequestedOrdersWhere(
+  companyId: string,
+  tab: FulfillmentTabArg,
+  searchFilters: RequestItemSearchPayload,
+): Record<string, unknown> {
+  const requestLine = { transaction_type: { _eq: 'request' } };
+  const searchAnd = buildOrderItemRequestSearchAnd(searchFilters);
+
+  const pendingReqFilter =
+    searchAnd.length > 0
+      ? {
+          order_item_requests: {
+            _and: [{ fulfillment_status: { _eq: 'pending' } }, ...searchAnd],
+          },
+        }
+      : { order_item_requests: { fulfillment_status: { _eq: 'pending' } } };
+
+  const fulfilledReqFilter =
+    searchAnd.length > 0
+      ? {
+          order_item_requests: {
+            _and: [{ fulfillment_status: { _eq: 'fulfilled' } }, ...searchAnd],
+          },
+        }
+      : { order_item_requests: { fulfillment_status: { _eq: 'fulfilled' } } };
+
+  if (tab === 'unfulfilled') {
+    return {
+      _and: [
+        { company_id: { _eq: companyId } },
+        { order_items: { _and: [requestLine, pendingReqFilter] } },
+      ],
+    };
+  }
+
+  return {
+    _and: [
+      { company_id: { _eq: companyId } },
+      { order_items: { _and: [requestLine, fulfilledReqFilter] } },
+      {
+        _not: {
+          order_items: {
+            _and: [
+              requestLine,
+              { order_item_requests: { fulfillment_status: { _eq: 'pending' } } },
+            ],
+          },
+        },
+      },
+    ],
+  };
+}
+
+function mapRequestedOrderListRow(row: any): RequestedOrderListRow {
+  const items = row.order_items ?? [];
+  const pairs = new Map<string, { name: string; class: string }>();
+  for (const line of items) {
+    const reqs = line.order_item_requests ?? [];
+    for (const r of reqs) {
+      const name = String(r.student_name ?? '').trim();
+      const cls = String(r.student_class ?? '').trim();
+      pairs.set(`${name}\0${cls}`, { name, class: cls });
+    }
+  }
+  const first = pairs.values().next().value as { name: string; class: string } | undefined;
+  return {
+    order_id: row.order_id,
+    created_at: row.created_at ?? new Date().toISOString(),
+    total: row.total ?? 0,
+    student_name: first?.name || '—',
+    student_class: first?.class || '—',
+    has_multiple_students: pairs.size > 1,
+  };
+}
+
+function mapRequestedOrderLine(row: any, index: number): RequestedOrderLine {
+  const reqs = row.order_item_requests ?? [];
+  const r = reqs[0] ?? {};
+  const ac = row.article_code ?? '';
+  return {
+    line_key: `${ac}-${index}`,
+    article_code: ac,
+    product_name: row.product_name ?? '',
+    quantity: row.quantity ?? 0,
+    unit_price: row.unit_price ?? 0,
+    total: row.total ?? 0,
+    student_name: String(r.student_name ?? '').trim(),
+    student_class: String(r.student_class ?? '').trim(),
+    phone_number: r.phone_number ?? undefined,
+    fulfillment_status: String(r.fulfillment_status ?? 'pending'),
+  };
+}
 
 function mapProductInventoryRow(row: any): Product {
   const reserved = row.reserved ?? 0;
@@ -592,7 +843,7 @@ const data: DataProvider = {
     const mapCompany = (row: any) => {
       const company = row.company ?? row;
       const role = row.access_role?.role_type;
-      const tiles = row.access_role?.visible_tiles ?? ['inventory', 'sale_history', 'new_sale'];
+      const tiles = row.access_role?.visible_tiles ?? [TileIds.INVENTORY, TileIds.SALE_HISTORY, TileIds.NEW_SALE];
       return {
         id: company.id,
         name: company.name,
@@ -717,12 +968,11 @@ const data: DataProvider = {
               order_item_requests: {
                 data: [
                   {
-                    article_code: item.article_code,
-                    quantity: item.quantity,
-                    student_name: item.request_details.name,
-                    student_class: item.request_details.class,
-                    phone_number: item.request_details.phone ?? null,
+                    [OrderItemRequestField.STUDENT_NAME]: item.request_details.name,
+                    [OrderItemRequestField.STUDENT_CLASS]: item.request_details.class,
+                    [OrderItemRequestField.PHONE_NUMBER]: item.request_details.phone ?? null,
                     fulfillment_status: 'pending',
+                    company_id: input.company_id,
                   },
                 ],
               },
@@ -743,7 +993,6 @@ const data: DataProvider = {
           cash_share: input.cash_share,
           online_share: input.online_share,
           status: input.status ?? 'success',
-          ...(input.meta ? { meta: input.meta } : {}),
           order_items: { data: orderItemsData },
         },
       },
@@ -786,6 +1035,46 @@ const data: DataProvider = {
       query: UPDATE_ORDER_STATUS_MUTATION,
       variables: { orderId: input.server_order_id, status: input.status },
     });
+  },
+
+  async fetchRequestedOrders(companyId, opts) {
+    const { page = 1, limit = 50, tab, searchFilters = {} } = opts;
+    const offset = (page - 1) * limit;
+    const where = buildRequestedOrdersWhere(companyId, tab, searchFilters);
+    const d = await gqlRequest<any>({
+      query: REQUEST_ORDERS_BUNDLED_QUERY,
+      variables: { where, limit, offset },
+    });
+    const rows = d?.order_history ?? [];
+    const count = d?.order_history_aggregate?.aggregate?.count ?? 0;
+    return {
+      orders: rows.map(mapRequestedOrderListRow),
+      totalCount: typeof count === 'number' ? count : 0,
+    };
+  },
+
+  async fetchRequestedOrderLines(orderId, opts) {
+    const { page = 1, limit = 50 } = opts;
+    const offset = (page - 1) * limit;
+    const d = await gqlRequest<any>({
+      query: REQUEST_ORDER_LINES_QUERY,
+      variables: { orderId, limit, offset },
+    });
+    const rows = d?.order_items ?? [];
+    const count = d?.order_items_aggregate?.aggregate?.count ?? 0;
+    return {
+      lines: rows.map((row: any, i: number) => mapRequestedOrderLine(row, offset + i)),
+      totalCount: typeof count === 'number' ? count : 0,
+    };
+  },
+
+  async fulfillOrderRequests(orderId) {
+    const d = await gqlRequest<any>({
+      query: FULFILL_ORDER_REQUESTS_MUTATION,
+      variables: { orderId },
+    });
+    const affected = d?.update_order_item_requests?.affected_rows ?? 0;
+    return { success: true, affected_rows: typeof affected === 'number' ? affected : 0 };
   },
 
   async fetchPendingTransfers(companyId) {

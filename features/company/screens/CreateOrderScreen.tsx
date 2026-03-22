@@ -13,6 +13,7 @@ import { AddReturnItemModal } from '@/core/components/add-return-item-modal';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
+import { OrderItemRequestField } from '@/core/constants/order-item-request-fields';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
@@ -21,6 +22,13 @@ import type { CartItem, CartTransactionType } from '@/core/types/cart';
 import { Strings } from '@/core/strings';
 
 const REQUEST_PURPLE = '#7B2FBE';
+
+/** UI placeholders aligned with `OrderItemRequestField` / `order_item_requests` columns. */
+const REQUEST_ITEM_FORM_PLACEHOLDER = {
+  [OrderItemRequestField.STUDENT_NAME]: Strings.company.requestItemStudentNameRequired,
+  [OrderItemRequestField.STUDENT_CLASS]: Strings.company.requestItemStudentClassRequired,
+  [OrderItemRequestField.PHONE_NUMBER]: Strings.company.requestItemPhoneOptional,
+} as const;
 
 export default function CreateOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -86,16 +94,6 @@ export default function CreateOrderScreen() {
               <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.cartItemName}>
                 {item.product.name}
               </ThemedText>
-              {isRefund && (
-                <View style={[styles.badge, { backgroundColor: '#FFEBEE' }]}>
-                  <ThemedText style={[styles.badgeText, { color: '#C62828' }]}>Refund</ThemedText>
-                </View>
-              )}
-              {isRequest && (
-                <View style={[styles.badge, { backgroundColor: '#EDE7F6' }]}>
-                  <ThemedText style={[styles.badgeText, { color: REQUEST_PURPLE }]}>Request</ThemedText>
-                </View>
-              )}
             </View>
             <ThemedText style={[styles.unitPrice, { color: colors.icon }]}>
               {formatPrice(item.unit_price, item.currency)} each
@@ -116,12 +114,26 @@ export default function CreateOrderScreen() {
               <IconSymbol name="plus" size={16} color={colors.text} />
             </Pressable>
           </View>
-          <ThemedText
-            type="defaultSemiBold"
-            style={[styles.subtotal, isRefund && styles.subtotalReturn]}
-          >
-            {isRefund ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
-          </ThemedText>
+          <View style={styles.priceAndBadgeCol}>
+            <ThemedText
+              type="defaultSemiBold"
+              style={[styles.subtotal, isRefund && styles.subtotalReturn]}
+            >
+              {isRefund ? '-' : ''}{formatPrice(Math.abs(lineTotal), item.currency)}
+            </ThemedText>
+            {isRefund && (
+              <View style={[styles.badge, styles.badgeBelowPrice, { backgroundColor: '#FFEBEE' }]}>
+                <ThemedText style={[styles.badgeText, { color: '#C62828' }]}>{Strings.company.refund}</ThemedText>
+              </View>
+            )}
+            {isRequest && (
+              <View style={[styles.badge, styles.badgeBelowPrice, { backgroundColor: '#EDE7F6' }]}>
+                <ThemedText style={[styles.badgeText, { color: REQUEST_PURPLE }]}>
+                  {Strings.company.requestBadge}
+                </ThemedText>
+              </View>
+            )}
+          </View>
           <Pressable onPress={() => removeItem(item.article_code, item.transactionType)} hitSlop={8}>
             <IconSymbol name="trash" size={18} color="#C62828" />
           </Pressable>
@@ -199,7 +211,7 @@ export default function CreateOrderScreen() {
             </ThemedText>
             <TextInput
               style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder="Child Name *"
+              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_NAME]}
               placeholderTextColor={colors.icon}
               value={childName}
               onChangeText={setChildName}
@@ -207,7 +219,7 @@ export default function CreateOrderScreen() {
             />
             <TextInput
               style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder="Child Class *"
+              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_CLASS]}
               placeholderTextColor={colors.icon}
               value={childClass}
               onChangeText={setChildClass}
@@ -215,7 +227,7 @@ export default function CreateOrderScreen() {
             />
             <TextInput
               style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder="Parent Phone Number"
+              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.PHONE_NUMBER]}
               placeholderTextColor={colors.icon}
               value={parentPhone}
               onChangeText={setParentPhone}
@@ -315,13 +327,20 @@ const styles = StyleSheet.create({
   cartBody: { flex: 1, gap: 2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   cartItemName: { flex: 1 },
+  priceAndBadgeCol: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 72,
+  },
   badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  badgeBelowPrice: { marginTop: 2 },
   badgeText: { fontSize: 11, fontWeight: '600' },
   unitPrice: { fontSize: 12 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   qtyBtn: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   qtyText: { fontSize: 15, fontWeight: '600', minWidth: 20, textAlign: 'center' },
-  subtotal: { minWidth: 70, textAlign: 'right', fontSize: 14 },
+  subtotal: { textAlign: 'right', fontSize: 14 },
   subtotalReturn: { color: '#C62828' },
   totalNegative: { color: '#C62828' },
 

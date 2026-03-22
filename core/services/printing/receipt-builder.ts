@@ -12,6 +12,7 @@ import type { CreateOrderResult } from '@/core/backend/types';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { formatAmount } from '@/core/services/format';
 import { Strings } from '@/core/strings';
+import type { CartTransactionType } from '@/core/types/cart';
 import type { OrderWithItems } from '@/core/types/order';
 import { CheckoutButton, getPaymentDisplayLabel, PAYMENT_CHECKOUT_MAP } from '@/core/types/order';
 
@@ -36,6 +37,8 @@ export interface ReceiptLineItem {
   quantity: number;
   unit_price: number;
   total: number;
+  /** When set, marks refund vs request on the receipt (thermal-safe tags). */
+  transaction_type?: CartTransactionType;
 }
 
 export interface ReceiptData {
@@ -95,11 +98,17 @@ export function buildReceiptText(data: ReceiptData): string {
   lines.push('');
   lines.push(margin('----------------'));
 
+  const refundMark = ascii(Strings.company.receiptPrintRefundMark);
+  const requestMark = ascii(Strings.company.receiptPrintRequestMark);
+
   for (const item of data.items) {
-    const isReturn = item.total < 0;
+    const isRequestLine = item.transaction_type === 'request';
+    const isRefundLine =
+      item.transaction_type === 'refund' || (!isRequestLine && item.total < 0);
     const name = ascii(item.product_name);
     const truncated = name.length > 24 ? name.slice(0, 24) + '...' : name;
-    lines.push(margin(truncated + (isReturn ? ' (RETURN)' : '')));
+    const lineTag = isRefundLine ? refundMark : isRequestLine ? requestMark : '';
+    lines.push(margin(truncated + (lineTag ? ' ' + lineTag : '')));
     const size = item.size?.trim();
     if (size) {
       lines.push(margin('  Size: ' + ascii(size)));
@@ -107,7 +116,7 @@ export function buildReceiptText(data: ReceiptData): string {
     const code = item.article_code?.trim();
     const codePart = code ? ascii(code) + ' - ' : '';
     const unitDisplay = formatAmount(item.unit_price);
-    const sign = isReturn ? '-' : '';
+    const sign = isRefundLine ? '-' : '';
     const totalDisplay = formatAmount(Math.abs(item.total));
     lines.push(margin('  ' + codePart + `${item.quantity} x ${unitDisplay} = ${sign}${totalDisplay}`));
   }
@@ -131,6 +140,7 @@ export interface CheckoutCartItem {
   quantity: number;
   unit_price: number;
   total: number;
+  transaction_type?: CartTransactionType;
 }
 
 /**
@@ -141,14 +151,18 @@ export function orderToReceiptData(order: OrderWithItems): ReceiptData {
   return {
     orderId: order.server_order_id ?? '',
     createdAt: order.created_at,
-    items: order.items.map((i) => ({
-      product_name: i.product_name,
-      size: i.size,
-      article_code: i.article_code,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      total: i.transaction_type === 'refund' ? -Math.abs(i.total) : i.total,
-    })),
+    items: order.items.map((i) => {
+      const tt = i.transaction_type ?? (i.total < 0 ? 'refund' : 'sale');
+      return {
+        product_name: i.product_name,
+        size: i.size,
+        article_code: i.article_code,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        total: i.transaction_type === 'refund' ? -Math.abs(i.total) : i.total,
+        transaction_type: tt,
+      };
+    }),
     subtotal: order.subtotal,
     total: order.total,
     paymentMethod: getPaymentDisplayLabel({
@@ -181,6 +195,7 @@ export function checkoutResultToReceiptData(
       quantity: i.quantity,
       unit_price: i.unit_price,
       total: i.total,
+      transaction_type: i.transaction_type,
     })),
     subtotal: result.total,
     total: result.total,
@@ -199,9 +214,25 @@ export function getMockReceiptData(): ReceiptData {
     items: [
       { product_name: 'Test Product A', size: 'M', article_code: 'SKU-A', quantity: 2, unit_price: 50, total: 100 },
       { product_name: 'Test Product B', article_code: 'SKU-B', quantity: 1, unit_price: 25, total: 25 },
+      {
+        product_name: 'Test Request Line',
+        article_code: 'SKU-C',
+        quantity: 1,
+        unit_price: 0,
+        total: 0,
+        transaction_type: 'request',
+      },
+      {
+        product_name: 'Test Refund Line',
+        article_code: 'SKU-D',
+        quantity: 1,
+        unit_price: 30,
+        total: -30,
+        transaction_type: 'refund',
+      },
     ],
-    subtotal: 125,
-    total: 125,
+    subtotal: 95,
+    total: 95,
     paymentMethod: getPaymentDisplayLabel(PAYMENT_CHECKOUT_MAP[CheckoutButton.CASH]),
     isRefund: false,
     currency: CURRENCY_DEFAULT,

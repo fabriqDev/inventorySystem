@@ -27,7 +27,7 @@
     "created_at": "2024-03-10T00:00:00Z",
     "updated_at": "2024-03-10T00:00:00Z",
     "role": "super_admin",
-    "visible_tiles": ["inventory", "sale_history", "new_sale", "inventory_transfer", "add_products"]
+    "visible_tiles": ["inventory", "sale_history", "new_sale", "requested_items_tile", "inventory_transfer", "add_products"]
   },
   {
     "id": "4",
