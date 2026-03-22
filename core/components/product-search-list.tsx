@@ -20,6 +20,22 @@ import { formatPrice } from '@/core/services/format';
 import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
 
+/** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
+function compareProductsByNameThenSize(a: Product, b: Product): number {
+  const nameCmp = (a.name ?? '').localeCompare(b.name ?? '', undefined, {
+    sensitivity: 'base',
+  });
+  if (nameCmp !== 0) return nameCmp;
+  const sizeA = (a.size ?? '').trim();
+  const sizeB = (b.size ?? '').trim();
+  const sizeCmp = sizeA.localeCompare(sizeB, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  });
+  if (sizeCmp !== 0) return sizeCmp;
+  return (a.article_code ?? '').localeCompare(b.article_code ?? '');
+}
+
 interface Props {
   companyId: string;
   onSelectProduct?: (product: Product) => void;
@@ -57,7 +73,11 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
     [companyId, filterProducts, search],
   );
 
-  const displayProducts = backendResults !== null ? backendResults : localFiltered;
+  const rawDisplayProducts = backendResults !== null ? backendResults : localFiltered;
+  const displayProducts = useMemo(() => {
+    if (rawDisplayProducts.length <= 1) return rawDisplayProducts;
+    return [...rawDisplayProducts].sort(compareProductsByNameThenSize);
+  }, [rawDisplayProducts]);
   const showingBackend = backendResults !== null;
   const showSearchBackendButton =
     search.trim().length > 0 && localFiltered.length === 0 && !showingBackend;

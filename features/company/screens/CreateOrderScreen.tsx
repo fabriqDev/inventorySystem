@@ -1,3 +1,4 @@
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -7,7 +8,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { AddReturnItemModal } from '@/core/components/add-return-item-modal';
 import { ThemedText } from '@/core/components/themed-text';
@@ -18,8 +18,8 @@ import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice, roundMoney } from '@/core/services/format';
-import type { CartItem, CartTransactionType } from '@/core/types/cart';
 import { Strings } from '@/core/strings';
+import type { CartItem, CartTransactionType } from '@/core/types/cart';
 
 const REQUEST_PURPLE = '#7B2FBE';
 
@@ -95,9 +95,16 @@ export default function CreateOrderScreen() {
                 {item.product.name}
               </ThemedText>
             </View>
-            <ThemedText style={[styles.unitPrice, { color: colors.icon }]}>
-              {formatPrice(item.unit_price, item.currency)} each
-            </ThemedText>
+            <View style={styles.articleMetaCol}>
+              {item.product.size ? (
+                <ThemedText type="default" style={[styles.articleMetaSize, { color: colors.text }]}>
+                  {Strings.company.size}: {item.product.size}
+                </ThemedText>
+              ) : null}
+              <ThemedText style={[styles.articleMetaCode, { color: colors.icon }]}>
+                {Strings.company.articleCode}: {item.article_code}
+              </ThemedText>
+            </View>
           </View>
           <View style={styles.qtyRow}>
             <Pressable
@@ -336,7 +343,9 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   badgeBelowPrice: { marginTop: 2 },
   badgeText: { fontSize: 11, fontWeight: '600' },
-  unitPrice: { fontSize: 12 },
+  articleMetaCol: { gap: 4 },
+  articleMetaSize: { fontSize: 16, fontWeight: '500' },
+  articleMetaCode: { fontSize: 12 },
   qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   qtyBtn: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   qtyText: { fontSize: 15, fontWeight: '600', minWidth: 20, textAlign: 'center' },

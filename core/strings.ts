@@ -160,6 +160,7 @@ export const Strings = {
     nothingToFulfill: 'No pending lines to update.',
     multipleStudentsNote: 'Multiple students on this order',
     articleCode: 'Code',
+    size: 'Size',
     productNotFound: 'Product not found',
     productNotFoundHint: 'Try another barcode or search by name.',
     couldNotAddInsufficientQuantity: "Couldn't add, as not enough quantity.",
