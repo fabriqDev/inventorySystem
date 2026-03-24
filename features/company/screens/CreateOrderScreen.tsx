@@ -1,7 +1,6 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -66,6 +65,7 @@ export default function CreateOrderScreen() {
   const [draftsModalVisible, setDraftsModalVisible] = useState(false);
   /** When set, show in-modal replace confirmation (Alert is unreliable on web). */
   const [replaceDraftId, setReplaceDraftId] = useState<string | null>(null);
+  const [deleteDraftId, setDeleteDraftId] = useState<string | null>(null);
   const [addReturnMode, setAddReturnMode] = useState<CartTransactionType>('sale');
 
   // Meta fields for requested items
@@ -120,6 +120,7 @@ export default function CreateOrderScreen() {
 
   const onContinueDraft = useCallback(
     (draftId: string) => {
+      setDeleteDraftId(null);
       if (items.length > 0) {
         setReplaceDraftId(draftId);
         return;
@@ -138,26 +139,21 @@ export default function CreateOrderScreen() {
 
   const closeDraftsModal = useCallback(() => {
     setReplaceDraftId(null);
+    setDeleteDraftId(null);
     setDraftsModalVisible(false);
   }, []);
 
-  const onDeleteDraft = useCallback(
-    (draftId: string) => {
-      Alert.alert(
-        Strings.company.localDraftDeleteConfirmTitle,
-        Strings.company.localDraftDeleteConfirmMessage,
-        [
-          { text: Strings.common.cancel, style: 'cancel' },
-          {
-            text: Strings.company.localDraftDelete,
-            style: 'destructive',
-            onPress: () => void deleteDraft(draftId),
-          },
-        ],
-      );
-    },
-    [deleteDraft],
-  );
+  const onDeleteDraft = useCallback((draftId: string) => {
+    setReplaceDraftId(null);
+    setDeleteDraftId(draftId);
+  }, []);
+
+  const confirmDeleteDraft = useCallback(() => {
+    if (!deleteDraftId) return;
+    const id = deleteDraftId;
+    setDeleteDraftId(null);
+    void deleteDraft(id);
+  }, [deleteDraftId, deleteDraft]);
 
   const onSaveAndNew = useCallback(async () => {
     if (items.length === 0) {
@@ -533,6 +529,35 @@ export default function CreateOrderScreen() {
                     >
                       <ThemedText style={{ fontWeight: '600', color: '#fff' }}>
                         {Strings.company.localDraftReplaceConfirm}
+                      </ThemedText>
+                    </Pressable>
+                  </View>
+                </ThemedView>
+              </View>
+            ) : deleteDraftId != null ? (
+              <View style={[styles.replaceConfirmScrim, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                <ThemedView
+                  style={[styles.replaceConfirmCard, { borderColor: colors.icon + '22', backgroundColor: colors.background }]}
+                >
+                  <ThemedText type="defaultSemiBold" style={styles.replaceConfirmTitle}>
+                    {Strings.company.localDraftDeleteConfirmTitle}
+                  </ThemedText>
+                  <ThemedText style={[styles.replaceConfirmBody, { color: colors.icon }]}>
+                    {Strings.company.localDraftDeleteConfirmMessage}
+                  </ThemedText>
+                  <View style={styles.replaceConfirmActions}>
+                    <Pressable
+                      onPress={() => setDeleteDraftId(null)}
+                      style={[styles.replaceConfirmBtn, { borderColor: colors.icon + '40', borderWidth: 1 }]}
+                    >
+                      <ThemedText style={{ fontWeight: '600', color: colors.text }}>{Strings.common.cancel}</ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={confirmDeleteDraft}
+                      style={[styles.replaceConfirmBtn, { backgroundColor: '#C62828' }]}
+                    >
+                      <ThemedText style={{ fontWeight: '600', color: '#fff' }}>
+                        {Strings.company.localDraftDelete}
                       </ThemedText>
                     </Pressable>
                   </View>

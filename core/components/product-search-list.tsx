@@ -10,16 +10,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { ThemedText } from '@/core/components/themed-text';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
+import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { formatPrice } from '@/core/services/format';
-import type { Product } from '@/core/types/product';
 import { getAvailableStock } from '@/core/types/product';
+import type { Product } from '@/core/types/product';
 
 /** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
 function compareProductsByNameThenSize(a: Product, b: Product): number {
@@ -46,7 +46,7 @@ interface Props {
 }
 
 /** Screens wider than this (in dp/pt) get a 2-column grid; phones stay single-column. */
-const TWO_COLUMN_BREAKPOINT = 500;
+const TWO_COLUMN_BREAKPOINT = 600;
 
 export function ProductSearchList({ companyId, onSelectProduct, showQuantity, renderItem: customRenderItem }: Props) {
   const colorScheme = useColorScheme();
@@ -143,7 +143,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
         ]}
       >
         <View style={styles.cardBody}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.productName}>
+          <ThemedText type="defaultSemiBold" numberOfLines={2} style={styles.productName}>
             {item.name}
           </ThemedText>
           {item.size?.trim() ? (

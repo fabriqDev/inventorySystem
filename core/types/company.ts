@@ -8,6 +8,10 @@ export interface CompanyConfig {
   show_barcode?: boolean;
   /** When true, the receipt is printed automatically after a successful order. Defaults to false. */
   print_receipt_automatically?: boolean;
+
+  show_requested?: boolean;
+
+  allow_order_buyer_details?: boolean;
 }
 
 export interface Company {

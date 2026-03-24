@@ -612,6 +612,9 @@ const REQUEST_ORDER_LINES_QUERY = `
       quantity
       unit_price
       total
+      product {
+        size
+      }
       order_item_requests {
         student_name
         student_class
@@ -842,9 +845,12 @@ function mapRequestedOrderLine(row: any, index: number): RequestedOrderLine {
   const reqs = row.order_item_requests ?? [];
   const r = reqs[0] ?? {};
   const ac = row.article_code ?? '';
+  const sizeRaw = row.product?.size;
+  const size = sizeRaw != null && String(sizeRaw).trim() !== '' ? String(sizeRaw).trim() : undefined;
   return {
     line_key: `${ac}-${index}`,
     article_code: ac,
+    size,
     product_name: row.product_name ?? '',
     quantity: row.quantity ?? 0,
     unit_price: row.unit_price ?? 0,

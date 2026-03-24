@@ -129,9 +129,16 @@ export default function RequestedOrderDetailScreen() {
           <ThemedText type="defaultSemiBold" numberOfLines={2} style={{ color: colors.text }}>
             {item.product_name}
           </ThemedText>
-          <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
-            {Strings.company.articleCode}: {item.article_code}
-          </ThemedText>
+          <View style={styles.lineCodeBlock}>
+            <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
+              {Strings.company.articleCode}: {item.article_code}
+            </ThemedText>
+            {item.size ? (
+              <ThemedText style={[styles.lineMeta, styles.lineSizeBelow, { color: colors.icon }]}>
+                {Strings.company.size}: {item.size}
+              </ThemedText>
+            ) : null}
+          </View>
           <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
             {item.quantity} × {formatAmount(item.unit_price)} = {formatAmount(item.total)}
           </ThemedText>
@@ -232,9 +239,16 @@ export default function RequestedOrderDetailScreen() {
               <ThemedText style={[styles.detailRow, { color: colors.text }]} numberOfLines={3}>
                 {selectedLine.product_name}
               </ThemedText>
-              <ThemedText style={[styles.detailRow, { color: colors.icon }]}>
-                {Strings.company.articleCode}: {selectedLine.article_code}
-              </ThemedText>
+              <View style={styles.detailCodeBlock}>
+                <ThemedText style={[styles.detailRow, { color: colors.icon }]}>
+                  {Strings.company.articleCode}: {selectedLine.article_code}
+                </ThemedText>
+                {selectedLine.size ? (
+                  <ThemedText style={[styles.detailRow, styles.detailSizeBelow, { color: colors.icon }]}>
+                    {Strings.company.size}: {selectedLine.size}
+                  </ThemedText>
+                ) : null}
+              </View>
               <ThemedText style={[styles.detailRow, { color: colors.icon }]}>
                 {selectedLine.quantity} × {formatPrice(selectedLine.unit_price, CURRENCY_DEFAULT)} ={' '}
                 {formatPrice(selectedLine.total, CURRENCY_DEFAULT)}
@@ -278,7 +292,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 4,
   },
+  lineCodeBlock: { alignSelf: 'stretch' },
   lineMeta: { fontSize: 13 },
+  lineSizeBelow: { marginTop: 6 },
   statusBadge: { fontSize: 12, fontWeight: '600', marginTop: 4 },
   bottomBar: {
     position: 'absolute',
@@ -308,6 +324,8 @@ const styles = StyleSheet.create({
   },
   modalScroll: { flex: 1 },
   modalContent: { padding: 16, gap: 8 },
+  detailCodeBlock: { alignSelf: 'stretch' },
   detailRow: { fontSize: 15, lineHeight: 22 },
+  detailSizeBelow: { marginTop: 6 },
   detailDivider: { height: 1, marginVertical: 12 },
 });

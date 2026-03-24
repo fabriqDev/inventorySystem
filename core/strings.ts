@@ -193,7 +193,7 @@ export const Strings = {
     localDraftDeleteConfirmMessage: 'It will be removed from this device. This cannot be undone.',
     localDraftReplaceTitle: 'Replace current cart?',
     localDraftReplaceMessage:
-      'Your current cart will be cleared and replaced with the saved order. Items are not merged.',
+      'Your current cart will be cleared and replaced with the saved order.',
     localDraftReplaceConfirm: 'Replace',
     localDraftSummaryLine: '{count} items · {total}',
     localDraftJustNow: 'Just now',

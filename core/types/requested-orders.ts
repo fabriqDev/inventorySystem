@@ -34,6 +34,8 @@ export interface RequestedOrderLine {
   /** Stable key: article_code + index or order_item id if present */
   line_key: string;
   article_code: string;
+  /** From joined `product.size` when available. */
+  size?: string;
   product_name: string;
   quantity: number;
   unit_price: number;
