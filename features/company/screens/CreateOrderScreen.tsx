@@ -1,6 +1,8 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import {
+  Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,10 +18,18 @@ import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { OrderItemRequestField } from '@/core/types/requested-orders';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
+import { useLocalOrderDrafts } from '@/core/context/local-order-drafts-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice, roundMoney } from '@/core/services/format';
+import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
 import type { CartItem, CartTransactionType } from '@/core/types/cart';
+import {
+  draftItemLineCount,
+  draftTotal,
+  LOCAL_ORDER_DRAFTS_MAX,
+  type LocalOrderDraft,
+} from '@/core/types/local-order-draft';
 
 const REQUEST_PURPLE = '#7B2FBE';
 
@@ -30,6 +40,18 @@ const REQUEST_ITEM_FORM_PLACEHOLDER = {
   [OrderItemRequestField.PHONE_NUMBER]: Strings.company.requestItemPhoneOptional,
 } as const;
 
+function formatDraftAge(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return Strings.company.localDraftJustNow;
+  if (s < 3600) {
+    return Strings.company.localDraftMinutesAgo.replace('{n}', String(Math.floor(s / 60)));
+  }
+  if (s < 86400) {
+    return Strings.company.localDraftHoursAgo.replace('{n}', String(Math.floor(s / 3600)));
+  }
+  return Strings.company.localDraftDaysAgo.replace('{n}', String(Math.floor(s / 86400)));
+}
+
 export default function CreateOrderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -37,9 +59,13 @@ export default function CreateOrderScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
 
-  const { items, removeItem, updateQuantity, total, currency, itemCount } = useCart();
+  const { items, removeItem, updateQuantity, total, currency, itemCount, clearCart, replaceCart } = useCart();
+  const { drafts, saveDraft, deleteDraft, takeDraft } = useLocalOrderDrafts();
 
   const [addReturnVisible, setAddReturnVisible] = useState(false);
+  const [draftsModalVisible, setDraftsModalVisible] = useState(false);
+  /** When set, show in-modal replace confirmation (Alert is unreliable on web). */
+  const [replaceDraftId, setReplaceDraftId] = useState<string | null>(null);
   const [addReturnMode, setAddReturnMode] = useState<CartTransactionType>('sale');
 
   // Meta fields for requested items
@@ -78,6 +104,98 @@ export default function CreateOrderScreen() {
     }
     router.push(`/company/${id}/checkout?${params.toString()}` as any);
   }, [id, router, hasRequestItems, childName, childClass, parentPhone]);
+
+  const applyDraftToCart = useCallback(
+    async (draftId: string) => {
+      const d = await takeDraft(draftId);
+      if (!d) return;
+      replaceCart(d.items);
+      setChildName(d.requestMeta.childName);
+      setChildClass(d.requestMeta.childClass);
+      setParentPhone(d.requestMeta.parentPhone);
+      setDraftsModalVisible(false);
+    },
+    [takeDraft, replaceCart],
+  );
+
+  const onContinueDraft = useCallback(
+    (draftId: string) => {
+      if (items.length > 0) {
+        setReplaceDraftId(draftId);
+        return;
+      }
+      void applyDraftToCart(draftId);
+    },
+    [items.length, applyDraftToCart],
+  );
+
+  const confirmReplaceDraft = useCallback(() => {
+    if (!replaceDraftId) return;
+    const id = replaceDraftId;
+    setReplaceDraftId(null);
+    void applyDraftToCart(id);
+  }, [replaceDraftId, applyDraftToCart]);
+
+  const closeDraftsModal = useCallback(() => {
+    setReplaceDraftId(null);
+    setDraftsModalVisible(false);
+  }, []);
+
+  const onDeleteDraft = useCallback(
+    (draftId: string) => {
+      Alert.alert(
+        Strings.company.localDraftDeleteConfirmTitle,
+        Strings.company.localDraftDeleteConfirmMessage,
+        [
+          { text: Strings.common.cancel, style: 'cancel' },
+          {
+            text: Strings.company.localDraftDelete,
+            style: 'destructive',
+            onPress: () => void deleteDraft(draftId),
+          },
+        ],
+      );
+    },
+    [deleteDraft],
+  );
+
+  const onSaveAndNew = useCallback(async () => {
+    if (items.length === 0) {
+      toast.show({ type: 'info', message: Strings.company.localDraftsNothingToSave });
+      return;
+    }
+    if (drafts.length >= LOCAL_ORDER_DRAFTS_MAX) {
+      toast.show({ type: 'info', message: Strings.company.localDraftsMaxReached });
+      return;
+    }
+    const ok = await saveDraft({
+      companyId: typeof id === 'string' ? id : '',
+      items,
+      requestMeta: {
+        childName: childName.trim(),
+        childClass: childClass.trim(),
+        parentPhone: parentPhone.trim(),
+      },
+    });
+    if (!ok) {
+      toast.show({ type: 'info', message: Strings.company.localDraftsMaxReached });
+      return;
+    }
+    clearCart();
+    setChildName('');
+    setChildClass('');
+    setParentPhone('');
+    toast.show({ type: 'success', message: Strings.company.localDraftSavedToast });
+  }, [items, drafts.length, saveDraft, id, childName, childClass, parentPhone, clearCart]);
+
+  const draftSummaryLine = useCallback((d: LocalOrderDraft) => {
+    const c = draftItemLineCount(d.items);
+    const t = draftTotal(d.items);
+    const cur = d.items[0]?.currency ?? currency;
+    return Strings.company.localDraftSummaryLine
+      .replace('{count}', String(c))
+      .replace('{total}', formatPrice(t, cur));
+  }, [currency]);
 
   const renderCartItem = useCallback(
     (item: CartItem) => {
@@ -152,7 +270,37 @@ export default function CreateOrderScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <Stack.Screen options={{ title: Strings.company.createOrder }} />
+      <Stack.Screen
+        options={{
+          title: Strings.company.createOrder,
+          headerRight: () => (
+            <View style={styles.headerDraftsRow}>
+              <Pressable
+                onPress={() => void onSaveAndNew()}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={Strings.company.createAnotherOrderA11y}
+              >
+                <ThemedText style={[styles.headerDraftBtn, { color: colors.tint }]}>
+                  {Strings.company.createAnotherOrderHeader}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={() => setDraftsModalVisible(true)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={Strings.company.viewLocalOrdersA11y}
+                style={[styles.headerSavedBtn, { backgroundColor: colors.tint }]}
+              >
+                <ThemedText style={styles.headerSavedBtnText}>
+                  {Strings.company.viewLocalOrdersHeader}
+                </ThemedText>
+                {drafts.length > 0 ? <View style={styles.headerSavedBadgeDot} /> : null}
+              </Pressable>
+            </View>
+          ),
+        }}
+      />
 
       {/* Sale/Return action buttons */}
       <View style={styles.actions}>
@@ -290,12 +438,219 @@ export default function CreateOrderScreen() {
         companyId={id}
         onItemAdded={() => setAddReturnVisible(false)}
       />
+
+      <Modal
+        visible={draftsModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={closeDraftsModal}
+      >
+        <View style={styles.draftsPopupRoot}>
+          <Pressable style={styles.draftsModalOverlay} onPress={closeDraftsModal} />
+          <ThemedView
+            style={[
+              styles.draftsPopupCard,
+              {
+                borderColor: colors.icon + '22',
+                paddingBottom: 16 + insets.bottom,
+              },
+            ]}
+          >
+            <View style={[styles.draftsModalHeader, { borderBottomColor: colors.icon + '25' }]}>
+              <ThemedText type="subtitle" style={styles.draftsModalTitle}>
+                {Strings.company.localDraftsModalTitle}
+              </ThemedText>
+              <Pressable onPress={closeDraftsModal} hitSlop={12} style={styles.draftsModalClose}>
+                <ThemedText style={{ color: colors.tint, fontWeight: '600' }}>{Strings.common.done}</ThemedText>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.draftsModalScroll}
+              contentContainerStyle={styles.draftsModalBody}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {drafts.length === 0 ? (
+                <ThemedText style={[styles.draftsEmpty, { color: colors.icon }]}>
+                  {Strings.company.localDraftsEmpty}
+                </ThemedText>
+              ) : (
+                drafts.map((d) => (
+                  <View
+                    key={d.id}
+                    style={[styles.draftRow, { borderColor: colors.icon + '22', backgroundColor: colors.background }]}
+                  >
+                    <View style={styles.draftRowTextCol}>
+                      <ThemedText type="defaultSemiBold" numberOfLines={2}>
+                        {draftSummaryLine(d)}
+                      </ThemedText>
+                      <ThemedText style={[styles.draftRowAge, { color: colors.icon }]}>
+                        {formatDraftAge(d.updatedAt)}
+                      </ThemedText>
+                    </View>
+                    <View style={styles.draftRowActions}>
+                      <Pressable
+                        onPress={() => onContinueDraft(d.id)}
+                        style={[styles.draftRowBtn, { backgroundColor: colors.tint }]}
+                      >
+                        <ThemedText style={styles.draftRowBtnText}>{Strings.company.localDraftContinue}</ThemedText>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => onDeleteDraft(d.id)}
+                        style={[styles.draftRowBtn, { borderWidth: 1, borderColor: '#C62828', backgroundColor: '#FFEBEE' }]}
+                      >
+                        <ThemedText style={[styles.draftRowBtnText, { color: '#C62828' }]}>
+                          {Strings.company.localDraftDelete}
+                        </ThemedText>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            {replaceDraftId != null ? (
+              <View style={[styles.replaceConfirmScrim, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                <ThemedView
+                  style={[styles.replaceConfirmCard, { borderColor: colors.icon + '22', backgroundColor: colors.background }]}
+                >
+                  <ThemedText type="defaultSemiBold" style={styles.replaceConfirmTitle}>
+                    {Strings.company.localDraftReplaceTitle}
+                  </ThemedText>
+                  <ThemedText style={[styles.replaceConfirmBody, { color: colors.icon }]}>
+                    {Strings.company.localDraftReplaceMessage}
+                  </ThemedText>
+                  <View style={styles.replaceConfirmActions}>
+                    <Pressable
+                      onPress={() => setReplaceDraftId(null)}
+                      style={[styles.replaceConfirmBtn, { borderColor: colors.icon + '40', borderWidth: 1 }]}
+                    >
+                      <ThemedText style={{ fontWeight: '600', color: colors.text }}>{Strings.common.cancel}</ThemedText>
+                    </Pressable>
+                    <Pressable
+                      onPress={confirmReplaceDraft}
+                      style={[styles.replaceConfirmBtn, { backgroundColor: colors.tint }]}
+                    >
+                      <ThemedText style={{ fontWeight: '600', color: '#fff' }}>
+                        {Strings.company.localDraftReplaceConfirm}
+                      </ThemedText>
+                    </Pressable>
+                  </View>
+                </ThemedView>
+              </View>
+            ) : null}
+          </ThemedView>
+        </View>
+      </Modal>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headerDraftsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 20,
+    marginRight: 4,
+  },
+  headerDraftBtn: { fontSize: 13, fontWeight: '600' },
+  headerSavedBtn: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    minWidth: 64,
+  },
+  headerSavedBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  headerSavedBadgeDot: {
+    position: 'absolute',
+    top: 2,
+    right: 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#C62828',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+
+  draftsPopupRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  draftsModalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  draftsPopupCard: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '80%',
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  replaceConfirmScrim: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  replaceConfirmCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 18,
+    gap: 12,
+  },
+  replaceConfirmTitle: { fontSize: 17 },
+  replaceConfirmBody: { fontSize: 14, lineHeight: 20 },
+  replaceConfirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 4 },
+  replaceConfirmBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftsModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  draftsModalTitle: { flex: 1, paddingRight: 8 },
+  draftsModalClose: { paddingVertical: 4, paddingHorizontal: 4 },
+  draftsModalScroll: { maxHeight: 420 },
+  draftsModalBody: { padding: 16, paddingBottom: 24, gap: 12 },
+  draftsEmpty: { fontSize: 14, lineHeight: 20, textAlign: 'center', paddingVertical: 24 },
+  draftRow: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 12,
+  },
+  draftRowTextCol: { gap: 4 },
+  draftRowAge: { fontSize: 12 },
+  draftRowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  draftRowBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  draftRowBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+
   actions: {
     flexDirection: 'column',
     gap: 10,

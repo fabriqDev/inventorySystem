@@ -174,6 +174,32 @@ export const Strings = {
     productNotFound: 'Product not found',
     productNotFoundHint: 'Try another barcode or search by name.',
     couldNotAddInsufficientQuantity: "Couldn't add, as not enough quantity.",
+    /** Header on Create Order — park current cart and start empty. */
+    createAnotherOrderHeader: 'Save & new',
+    /** Header on Create Order — open list of locally saved (not submitted) orders. */
+    viewLocalOrdersHeader: 'Saved',
+    createAnotherOrderA11y: 'Save current cart and start a new order',
+    viewLocalOrdersA11y: 'View orders saved on this device, not yet submitted',
+    localDraftsModalTitle: 'Orders not submitted',
+    localDraftsEmpty:
+      'Nothing saved yet. When a buyer needs more time, tap Save & new to park this cart and start another.',
+    localDraftsMaxReached:
+      'You can save up to 5 orders on this device. Remove one from Saved to add another.',
+    localDraftsNothingToSave: 'Add items to the cart before saving.',
+    localDraftSavedToast: 'Order saved on this device. You can start a new one.',
+    localDraftContinue: 'Continue',
+    localDraftDelete: 'Delete',
+    localDraftDeleteConfirmTitle: 'Delete this saved order?',
+    localDraftDeleteConfirmMessage: 'It will be removed from this device. This cannot be undone.',
+    localDraftReplaceTitle: 'Replace current cart?',
+    localDraftReplaceMessage:
+      'Your current cart will be cleared and replaced with the saved order. Items are not merged.',
+    localDraftReplaceConfirm: 'Replace',
+    localDraftSummaryLine: '{count} items · {total}',
+    localDraftJustNow: 'Just now',
+    localDraftMinutesAgo: '{n}m ago',
+    localDraftHoursAgo: '{n}h ago',
+    localDraftDaysAgo: '{n}d ago',
   },
   errors: {
     generic: 'Something went wrong',

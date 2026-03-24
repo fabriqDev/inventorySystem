@@ -9,6 +9,8 @@ type CartContextType = {
   addItem: (product: Product, options?: { transactionType?: CartTransactionType }) => void;
   removeItem: (productId: string, transactionType?: CartTransactionType) => void;
   updateQuantity: (productId: string, quantity: number, transactionType?: CartTransactionType) => void;
+  /** Replace all line items (e.g. load a saved local draft). */
+  replaceCart: (items: CartItem[]) => void;
   clearCart: () => void;
   total: number;
   currency: string;
@@ -77,6 +79,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const replaceCart = useCallback((next: CartItem[]) => {
+    setItems(next.map((i) => ({ ...i, product: { ...i.product } })));
+  }, []);
+
   const clearCart = useCallback(() => setItems([]), []);
 
   const total = useMemo(
@@ -95,7 +101,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CartContext.Provider
-      value={{ items, addItem, removeItem, updateQuantity, clearCart, total, currency, itemCount }}
+      value={{ items, addItem, removeItem, updateQuantity, replaceCart, clearCart, total, currency, itemCount }}
     >
       {children}
     </CartContext.Provider>
