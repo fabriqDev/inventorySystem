@@ -13,7 +13,7 @@ import { AddReturnItemModal } from '@/core/components/add-return-item-modal';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
-import { OrderItemRequestField } from '@/core/constants/order-item-request-fields';
+import { OrderItemRequestField } from '@/core/types/requested-orders';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';

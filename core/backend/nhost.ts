@@ -9,7 +9,7 @@ import { Platform } from 'react-native';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
-import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/constants/order-item-request-fields';
+import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/types/requested-orders';
 import { toast } from '@/core/services/toast';
 import { PaymentProvider, PaymentType } from '@/core/types/order';
 import type { Product } from '@/core/types/product';

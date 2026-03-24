@@ -17,15 +17,16 @@ import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
-import {
-  OrderItemRequestField,
-  type RequestItemSearchPayload,
-} from '@/core/constants/order-item-request-fields';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice } from '@/core/services/format';
-import type { FulfillmentTab, RequestedOrderListRow } from '@/core/types/requested-orders';
+import {
+  OrderItemRequestField,
+  type FulfillmentTab,
+  type RequestItemSearchPayload,
+  type RequestedOrderListRow,
+} from '@/core/types/requested-orders';
 import { Strings } from '@/core/strings';
 
 const PAGE_LIMIT = 50;
