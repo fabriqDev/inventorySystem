@@ -12,7 +12,9 @@ export function useCompanyConfig(): Required<CompanyConfig> {
   return {
     /** Barcode/QR scanning is enabled unless the server explicitly sends false. */
     show_barcode: config.show_barcode !== false,
-    /** Auto-print is disabled unless the server explicitly sends true. */
-    print_receipt_automatically: config.print_receipt_automatically === true,
+    /** Requested items feature is enabled unless the server explicitly sends false. */
+    show_requested: config.show_requested !== false,
+    /** Buyer details form at checkout is disabled unless the server explicitly sends true. */
+    ask_order_buyer_details: config.ask_order_buyer_details === true,
   };
 }

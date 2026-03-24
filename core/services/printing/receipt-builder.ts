@@ -13,7 +13,7 @@ import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { formatAmount } from '@/core/services/format';
 import { Strings } from '@/core/strings';
 import type { CartTransactionType } from '@/core/types/cart';
-import type { OrderWithItems } from '@/core/types/order';
+import type { OrderItem, OrderWithItems } from '@/core/types/order';
 import { CheckoutButton, getPaymentDisplayLabel, PAYMENT_CHECKOUT_MAP } from '@/core/types/order';
 
 const SELLER_NAME = 'FabrIQ';
@@ -143,6 +143,22 @@ export interface CheckoutCartItem {
   transaction_type?: CartTransactionType;
 }
 
+/** Map persisted order lines to receipt JSON (same shape as checkout `itemsJson`). */
+export function orderItemsToReceiptLineItems(items: OrderItem[]): ReceiptLineItem[] {
+  return items.map((i) => {
+    const tt = i.transaction_type ?? (i.total < 0 ? 'refund' : 'sale');
+    return {
+      product_name: i.product_name,
+      size: i.size,
+      article_code: i.article_code,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      total: i.transaction_type === 'refund' ? -Math.abs(i.total) : i.total,
+      transaction_type: tt,
+    };
+  });
+}
+
 /**
  * Convert OrderWithItems (e.g. from orders list) to ReceiptData for printing.
  * Uses server_order_id for receipt (prefer after order is successful).
@@ -151,18 +167,7 @@ export function orderToReceiptData(order: OrderWithItems): ReceiptData {
   return {
     orderId: order.server_order_id ?? '',
     createdAt: order.created_at,
-    items: order.items.map((i) => {
-      const tt = i.transaction_type ?? (i.total < 0 ? 'refund' : 'sale');
-      return {
-        product_name: i.product_name,
-        size: i.size,
-        article_code: i.article_code,
-        quantity: i.quantity,
-        unit_price: i.unit_price,
-        total: i.transaction_type === 'refund' ? -Math.abs(i.total) : i.total,
-        transaction_type: tt,
-      };
-    }),
+    items: orderItemsToReceiptLineItems(order.items),
     subtotal: order.subtotal,
     total: order.total,
     paymentMethod: getPaymentDisplayLabel({

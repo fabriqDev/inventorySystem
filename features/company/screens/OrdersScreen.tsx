@@ -1,4 +1,4 @@
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -22,9 +22,11 @@ import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
+import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice, roundMoney } from '@/core/services/format';
 import { downloadSalesOrdersPdf } from '@/core/services/pdf/sales-export-pdf';
+import { orderItemsToReceiptLineItems } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
 import type { OrderItem, OrderStats, OrderStatusEnum, OrderWithItems } from '@/core/types/order';
@@ -212,10 +214,12 @@ function pdfExportRange(
 
 export default function OrdersScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { useMockData } = useDataSource();
+  const { show_requested: showRequested } = useCompanyConfig();
 
   // Filter tabs
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -355,6 +359,32 @@ export default function OrdersScreen() {
   const currency = orders[0]?.currency ?? CURRENCY_DEFAULT;
 
   // ── Open order detail (lazy-load items) ──────────────────────────────────
+
+  const openReceiptFromOrderDetail = useCallback(() => {
+    if (!id || !selectedOrder?.server_order_id || loadingItems) return;
+    const lines = selectedOrder.items ?? [];
+    if (lines.length === 0) {
+      toast.show({ type: 'info', message: Strings.company.orderDetailsPrintNeedItems });
+      return;
+    }
+    const itemsJson = encodeURIComponent(JSON.stringify(orderItemsToReceiptLineItems(lines)));
+    const order = selectedOrder;
+    setSelectedOrder(null);
+    router.push({
+      pathname: '/company/[id]/receipt-preview',
+      params: {
+        id,
+        orderId: order.server_order_id,
+        total: String(order.total),
+        payment_type: order.payment_type,
+        payment_provider: order.payment_provider,
+        itemsJson,
+        currency: order.currency,
+        createdAt: order.created_at,
+        afterDone: 'orders',
+      },
+    } as any);
+  }, [id, selectedOrder, loadingItems, router]);
 
   const handleOpenOrder = useCallback(async (order: OrderWithItems) => {
     setSelectedOrder(order);
@@ -578,6 +608,17 @@ export default function OrdersScreen() {
                   </ThemedText>
                 </Pressable>
               )}
+              {showRequested ? (
+                <Pressable
+                  onPress={() => router.push(`/company/${id}/requested-items` as any)}
+                  hitSlop={10}
+                  style={styles.headerIconBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={Strings.company.ordersRequestedItemsA11y}
+                >
+                  <IconSymbol name="list.bullet.clipboard.fill" size={22} color={colors.tint} />
+                </Pressable>
+              ) : null}
               <Pressable onPress={handleRefresh} hitSlop={10} style={styles.headerIconBtn}>
                 <IconSymbol name="arrow.clockwise" size={22} color={colors.icon} />
               </Pressable>
@@ -697,9 +738,30 @@ export default function OrdersScreen() {
             <ThemedText type="subtitle" style={styles.modalTitle}>
               {Strings.company.orderDetails}
             </ThemedText>
-            <Pressable onPress={() => setSelectedOrder(null)} hitSlop={12} style={styles.modalCloseBtn}>
-              <ThemedText style={{ color: colors.tint, fontWeight: '600' }}>{Strings.common.done}</ThemedText>
-            </Pressable>
+            <View style={styles.modalHeaderActions}>
+              <Pressable
+                onPress={openReceiptFromOrderDetail}
+                disabled={
+                  !selectedOrder?.server_order_id ||
+                  loadingItems ||
+                  (selectedOrder?.items?.length ?? 0) === 0
+                }
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.modalHeaderActionBtn,
+                  (!selectedOrder?.server_order_id ||
+                    loadingItems ||
+                    (selectedOrder?.items?.length ?? 0) === 0) &&
+                    styles.modalHeaderActionBtnDisabled,
+                  pressed && { opacity: 0.7 },
+                ]}
+              >
+                <ThemedText style={{ color: colors.tint, fontWeight: '600' }}>{Strings.common.print}</ThemedText>
+              </Pressable>
+              <Pressable onPress={() => setSelectedOrder(null)} hitSlop={12} style={styles.modalCloseBtn}>
+                <ThemedText style={{ color: colors.tint, fontWeight: '600' }}>{Strings.common.done}</ThemedText>
+              </Pressable>
+            </View>
           </View>
           {selectedOrder && (
             <ScrollView
@@ -1078,6 +1140,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   modalTitle: { flex: 1 },
+  modalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  modalHeaderActionBtn: { paddingVertical: 4, paddingHorizontal: 4 },
+  modalHeaderActionBtnDisabled: { opacity: 0.35 },
   modalCloseBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   modalScroll: { flex: 1 },
   modalContent: { padding: 16, paddingBottom: 24 },

@@ -17,6 +17,7 @@ import { Colors } from '@/core/constants/theme';
 import { useCompany } from '@/core/context/company-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
+import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { Strings } from '@/core/strings';
 import type { TileId } from '@/core/types/tiles';
 import { TileIds } from '@/core/types/tiles';
@@ -147,13 +148,22 @@ export default function TilesScreen() {
     }, [id, refreshProducts]),
   );
 
+  const { show_requested: showRequested } = useCompanyConfig();
+
   const listData = useMemo(() => {
     const raw = selectedCompany?.visible_tiles ?? [];
     const set = new Set(raw);
-    const ordered = TILE_DISPLAY_ORDER.filter((t) => set.has(t));
-    const rest = raw.filter((t) => !TILE_DISPLAY_ORDER.includes(t as TileId));
+    let ordered = TILE_DISPLAY_ORDER.filter((t) => set.has(t));
+    if (!showRequested) {
+      ordered = ordered.filter((t) => t !== TileIds.REQUESTED_ITEMS);
+    }
+    const rest = raw.filter(
+      (t) =>
+        !TILE_DISPLAY_ORDER.includes(t as TileId) &&
+        (showRequested || t !== TileIds.REQUESTED_ITEMS),
+    );
     return [...ordered, ...rest];
-  }, [selectedCompany?.visible_tiles]);
+  }, [selectedCompany?.visible_tiles, showRequested]);
 
   const handleTilePress = useCallback(
     (tileId: TileId) => {

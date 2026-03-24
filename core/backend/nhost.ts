@@ -417,6 +417,8 @@ const ORDERS_QUERY = `
       created_at
       status
       subtotal
+      customer_details
+      notes
     }
     order_history_aggregate(
       where: { company_id: { _eq: $companyId } }
@@ -451,6 +453,8 @@ const ORDERS_QUERY_WITH_DATES = `
       created_at
       status
       subtotal
+      customer_details
+      notes
     }
     order_history_aggregate(
       where: {
@@ -510,6 +514,8 @@ const ORDERS_EXPORT_WITH_ITEMS_QUERY = `
       created_at
       status
       subtotal
+      customer_details
+      notes
       order_items {
         article_code
         product_name
@@ -908,6 +914,8 @@ function mapOrderHistoryRowWithItems(o: any, companyId: string): OrderWithItems 
     online_share: o.online_share ?? 0,
     status: o.status ?? 'success',
     created_at: o.created_at ?? new Date().toISOString(),
+    customer_details: o.customer_details ?? undefined,
+    notes: o.notes ?? undefined,
     items,
   };
 }
@@ -1022,6 +1030,8 @@ const data: DataProvider = {
       online_share: o.online_share ?? 0,
       status: o.status ?? 'success',
       created_at: o.created_at ?? new Date().toISOString(),
+      customer_details: o.customer_details ?? undefined,
+      notes: o.notes ?? undefined,
       items: [],
     }));
 
@@ -1107,6 +1117,13 @@ const data: DataProvider = {
           : {}),
       };
     });
+    const trimmedNotes = input.notes?.trim();
+    const buyerPayload =
+      input.buyer_details &&
+      Object.values(input.buyer_details).some((v) => v != null && String(v).trim() !== '')
+        ? input.buyer_details
+        : undefined;
+
     const orderData = await gqlRequest<any>({
       query: CREATE_ORDER_MUTATION,
       variables: {
@@ -1120,6 +1137,8 @@ const data: DataProvider = {
           cash_share: input.cash_share,
           online_share: input.online_share,
           status: input.status ?? 'success',
+          ...(trimmedNotes ? { notes: trimmedNotes } : {}),
+          ...(buyerPayload ? { customer_details: buyerPayload } : {}),
           order_items: { data: orderItemsData },
         },
       },

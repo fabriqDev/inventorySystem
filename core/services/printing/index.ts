@@ -2,6 +2,7 @@ export {
   buildReceiptText,
   checkoutResultToReceiptData,
   getMockReceiptData,
+  orderItemsToReceiptLineItems,
   orderToReceiptData,
   type CheckoutCartItem,
   type ReceiptData,

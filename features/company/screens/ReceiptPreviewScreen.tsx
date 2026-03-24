@@ -21,6 +21,7 @@ import {
   connectAndPrint,
   getSavedPrinter,
   isPrintSupported,
+  setSavedPrinter as persistSavedPrinter,
   type PrinterDevice,
   type ReceiptData,
   type ReceiptLineItem,
@@ -63,6 +64,10 @@ export default function ReceiptPreviewScreen() {
     payment_provider?: string;
     itemsJson?: string;
     currency?: string;
+    /** ISO timestamp for reprints from order history (checkout omits → “now”). */
+    createdAt?: string;
+    /** Where Done returns: company home (tiles) after checkout, or sales list from order details. */
+    afterDone?: 'tiles' | 'orders';
   }>();
 
   const orderId = params.orderId ?? '';
@@ -73,13 +78,23 @@ export default function ReceiptPreviewScreen() {
   const currency = params.currency ?? CURRENCY_DEFAULT;
   const items = parseItemsJson(params.itemsJson);
 
-  const [savedPrinter, setSavedPrinter] = useState<PrinterDevice | null>(null);
+  const [savedPrinter, setSavedPrinterState] = useState<PrinterDevice | null>(null);
   const [showPrinterSelect, setShowPrinterSelect] = useState(false);
   const [printing, setPrinting] = useState(false);
 
   const refreshPrinter = useCallback(async () => {
     const saved = await getSavedPrinter();
-    setSavedPrinter(saved);
+    setSavedPrinterState(saved);
+  }, []);
+
+  const openPrinterSelectModal = useCallback(async () => {
+    try {
+      await persistSavedPrinter(null);
+    } catch {
+      /* storage clear is best-effort */
+    }
+    setSavedPrinterState(null);
+    setShowPrinterSelect(true);
   }, []);
 
   useEffect(() => {
@@ -92,7 +107,7 @@ export default function ReceiptPreviewScreen() {
   const serverOrderId = orderId;
   const receiptData: ReceiptData = {
     orderId: serverOrderId,
-    createdAt: new Date().toISOString(),
+    createdAt: params.createdAt?.trim() ? params.createdAt : new Date().toISOString(),
     items,
     subtotal: total,
     total,
@@ -111,21 +126,22 @@ export default function ReceiptPreviewScreen() {
       toast.show({ type: 'success', message: Strings.company.receiptSentToPrinter });
     } catch {
       toast.show({ type: 'error', message: Strings.company.printFailed });
-      setShowPrinterSelect(true);
+      void openPrinterSelectModal();
     } finally {
       setPrinting(false);
     }
-  }, [canPrint, savedPrinter, receiptText]);
+  }, [canPrint, savedPrinter, receiptText, openPrinterSelectModal]);
 
   const companyId = params.id ?? '';
 
   const handleDone = useCallback(() => {
-    if (companyId) {
-      router.dismissTo(`/company/${companyId}` as any);
-    } else {
+    if (!companyId) {
       router.back();
+      return;
     }
-  }, [companyId, router]);
+    const target = params.afterDone === 'orders' ? `/company/${companyId}/orders` : `/company/${companyId}`;
+    router.dismissTo(target as any);
+  }, [companyId, params.afterDone, router]);
 
   const handlePrinterConnected = useCallback(() => {
     refreshPrinter();
@@ -140,7 +156,7 @@ export default function ReceiptPreviewScreen() {
           headerRight: isPrintSupported
             ? () => (
                 <Pressable
-                  onPress={() => setShowPrinterSelect(true)}
+                  onPress={() => void openPrinterSelectModal()}
                   style={styles.headerBtn}
                   hitSlop={8}
                 >

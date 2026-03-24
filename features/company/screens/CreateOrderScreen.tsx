@@ -18,6 +18,7 @@ import { OrderItemRequestField } from '@/core/types/requested-orders';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useLocalOrderDrafts } from '@/core/context/local-order-drafts-context';
+import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatPrice, roundMoney } from '@/core/services/format';
 import { toast } from '@/core/services/toast';
@@ -60,6 +61,7 @@ export default function CreateOrderScreen() {
 
   const { items, removeItem, updateQuantity, total, currency, itemCount, clearCart, replaceCart } = useCart();
   const { drafts, saveDraft, deleteDraft, takeDraft } = useLocalOrderDrafts();
+  const { show_requested: showRequested } = useCompanyConfig();
 
   const [addReturnVisible, setAddReturnVisible] = useState(false);
   const [draftsModalVisible, setDraftsModalVisible] = useState(false);
@@ -332,66 +334,67 @@ export default function CreateOrderScreen() {
           saleItems.map(renderCartItem)
         )}
 
-        {/* Always-visible Requested Items section */}
-        <View style={[styles.sectionSeparator, { borderColor: REQUEST_PURPLE + '40' }]}>
-          <View style={[styles.sectionLine, { backgroundColor: REQUEST_PURPLE + '40' }]} />
-          <View style={[styles.sectionLabelWrap, { backgroundColor: '#EDE7F6' }]}>
-            <ThemedText style={[styles.sectionLabel, { color: REQUEST_PURPLE }]}>
-              Requested Items
-            </ThemedText>
-          </View>
-          <View style={[styles.sectionLine, { backgroundColor: REQUEST_PURPLE + '40' }]} />
-        </View>
+        {showRequested ? (
+          <>
+            <View style={[styles.sectionSeparator, { borderColor: REQUEST_PURPLE + '40' }]}>
+              <View style={[styles.sectionLine, { backgroundColor: REQUEST_PURPLE + '40' }]} />
+              <View style={[styles.sectionLabelWrap, { backgroundColor: '#EDE7F6' }]}>
+                <ThemedText style={[styles.sectionLabel, { color: REQUEST_PURPLE }]}>
+                  Requested Items
+                </ThemedText>
+              </View>
+              <View style={[styles.sectionLine, { backgroundColor: REQUEST_PURPLE + '40' }]} />
+            </View>
 
-        {/* Add Request Item button always visible inside the section */}
-        <Pressable
-          onPress={openRequestItem}
-          style={[styles.actionBtnInline, { backgroundColor: REQUEST_PURPLE }]}
-        >
-          <IconSymbol name="plus.circle.fill" size={20} color="#fff" />
-          <ThemedText style={styles.actionText}>Add Request Item</ThemedText>
-        </Pressable>
+            <Pressable
+              onPress={openRequestItem}
+              style={[styles.actionBtnInline, { backgroundColor: REQUEST_PURPLE }]}
+            >
+              <IconSymbol name="plus.circle.fill" size={20} color="#fff" />
+              <ThemedText style={styles.actionText}>Add Request Item</ThemedText>
+            </Pressable>
 
-        {requestItems.map(renderCartItem)}
+            {requestItems.map(renderCartItem)}
 
-        {/* Meta fields — shown once any request items are added */}
-        {hasRequestItems && (
-          <View style={[styles.metaCard, { backgroundColor: colors.background, borderColor: REQUEST_PURPLE + '40' }]}>
-            <ThemedText style={[styles.metaTitle, { color: REQUEST_PURPLE }]}>
-              Student Details
-            </ThemedText>
-            <TextInput
-              style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_NAME]}
-              placeholderTextColor={colors.icon}
-              value={childName}
-              onChangeText={setChildName}
-              returnKeyType="next"
-            />
-            <TextInput
-              style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_CLASS]}
-              placeholderTextColor={colors.icon}
-              value={childClass}
-              onChangeText={setChildClass}
-              returnKeyType="next"
-            />
-            <TextInput
-              style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-              placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.PHONE_NUMBER]}
-              placeholderTextColor={colors.icon}
-              value={parentPhone}
-              onChangeText={setParentPhone}
-              keyboardType="phone-pad"
-              returnKeyType="done"
-            />
-            {!metaComplete && (
-              <ThemedText style={styles.metaWarning}>
-                * Child Name and Class are required to proceed.
-              </ThemedText>
+            {hasRequestItems && (
+              <View style={[styles.metaCard, { backgroundColor: colors.background, borderColor: REQUEST_PURPLE + '40' }]}>
+                <ThemedText style={[styles.metaTitle, { color: REQUEST_PURPLE }]}>
+                  Student Details
+                </ThemedText>
+                <TextInput
+                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
+                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_NAME]}
+                  placeholderTextColor={colors.icon}
+                  value={childName}
+                  onChangeText={setChildName}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
+                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_CLASS]}
+                  placeholderTextColor={colors.icon}
+                  value={childClass}
+                  onChangeText={setChildClass}
+                  returnKeyType="next"
+                />
+                <TextInput
+                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
+                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.PHONE_NUMBER]}
+                  placeholderTextColor={colors.icon}
+                  value={parentPhone}
+                  onChangeText={setParentPhone}
+                  keyboardType="phone-pad"
+                  returnKeyType="done"
+                />
+                {!metaComplete && (
+                  <ThemedText style={styles.metaWarning}>
+                    * Child Name and Class are required to proceed.
+                  </ThemedText>
+                )}
+              </View>
             )}
-          </View>
-        )}
+          </>
+        ) : null}
       </ScrollView>
 
       {/* Bottom bar */}

@@ -78,6 +78,14 @@ export interface CreateOrderItemInput {
   request_details?: RequestDetails;
 }
 
+/** Optional checkout buyer block; stored server-side as JSON (e.g. `buyer_details` jsonb). */
+export interface OrderCheckoutBuyerDetails {
+  student_name?: string;
+  student_class?: string;
+  parent_name?: string;
+  parent_phone?: string;
+}
+
 export interface CreateOrderInput {
   company_id: string;
   user_id: string;
@@ -92,6 +100,10 @@ export interface CreateOrderInput {
   /** Order status: 'success' for immediate payments, 'pending' for PG flows awaiting confirmation. */
   status?: OrderStatusEnum;
   order_items: CreateOrderItemInput[];
+  /** Saved on `order_history.notes` when the column exists. */
+  notes?: string;
+  /** Saved as JSON on the order row when the column exists (e.g. `buyer_details`). */
+  buyer_details?: OrderCheckoutBuyerDetails | null;
 }
 
 export interface CreateOrderResult {

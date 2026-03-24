@@ -145,6 +145,10 @@ export interface Order {
   online_share: number;
   status: OrderStatusEnum;
   created_at: string;
+  /** Server JSON (e.g. checkout buyer details); shape depends on backend. */
+  customer_details?: unknown;
+  /** Free-text order notes from checkout. */
+  notes?: string;
 }
 
 /** Aggregated stats for a set of orders (from server aggregate query). */

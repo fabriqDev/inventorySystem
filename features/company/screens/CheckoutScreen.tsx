@@ -20,7 +20,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createOrder, createRazorpayOrder, updateOrderStatus, verifyRazorpayPayment } from '@/core/api/orders';
-import type { CreateOrderInput, CreateOrderItemInput } from '@/core/backend/types';
+import type { CreateOrderInput, CreateOrderItemInput, OrderCheckoutBuyerDetails } from '@/core/backend/types';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -31,6 +31,7 @@ import { useCart } from '@/core/context/cart-context';
 import { useCompany } from '@/core/context/company-context';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
+import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatAmount, formatPrice, roundMoney } from '@/core/services/format';
 import { openRazorpayCheckout, RazorpayError } from '@/core/services/razorpay';
@@ -327,10 +328,17 @@ export default function CheckoutScreen() {
     parentPhone?: string;
   }>();
   const { session } = useAuth();
-  const { items, total, currency, clearCart } = useCart();
+  const { items, total, currency, itemCount, clearCart } = useCart();
   const { selectedCompany } = useCompany();
   const { useMockData } = useDataSource();
   const { getCachedProducts, adjustStock } = useProductCache();
+  const { ask_order_buyer_details: askBuyerDetails, show_requested: showRequested } = useCompanyConfig();
+
+  const [orderNotes, setOrderNotes] = useState('');
+  const [buyerStudentName, setBuyerStudentName] = useState('');
+  const [buyerStudentClass, setBuyerStudentClass] = useState('');
+  const [buyerParentName, setBuyerParentName] = useState('');
+  const [buyerParentPhone, setBuyerParentPhone] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
@@ -375,6 +383,19 @@ export default function CheckoutScreen() {
 
   const saleRefundItems = useMemo(() => items.filter((i) => i.transactionType !== 'request'), [items]);
   const checkoutRequestItems = useMemo(() => items.filter((i) => i.transactionType === 'request'), [items]);
+
+  const buyerClassMissing = askBuyerDetails && buyerStudentClass.trim().length === 0;
+  const blockPaymentActions = hasStockError || buyerClassMissing;
+
+  const buildBuyerDetailsPayload = useCallback((): OrderCheckoutBuyerDetails | undefined => {
+    if (!askBuyerDetails) return undefined;
+    return {
+      student_name: buyerStudentName.trim() || undefined,
+      student_class: buyerStudentClass.trim() || undefined,
+      parent_name: buyerParentName.trim() || undefined,
+      parent_phone: buyerParentPhone.trim() || undefined,
+    };
+  }, [askBuyerDetails, buyerStudentName, buyerStudentClass, buyerParentName, buyerParentPhone]);
 
   useEffect(() => {
     if (items.length === 0 && !navigatingToReceiptRef.current) {
@@ -443,6 +464,8 @@ export default function CheckoutScreen() {
           payment_provider: payment.payment_provider,
           cash_share: payment.cash_share,
           online_share: payment.online_share,
+          notes: orderNotes.trim() || undefined,
+          buyer_details: buildBuyerDetailsPayload(),
           order_items: cartToOrderItems(items, requestDetailsForOrder),
         };
         const result = await createOrder(orderInput, useMockData);
@@ -470,12 +493,29 @@ export default function CheckoutScreen() {
         setSubmitting(false);
       }
     },
-    [companyId, userId, items, total, useMockData, navigateToReceipt, adjustStock, childName, childClass, parentPhone],
+    [
+      companyId,
+      userId,
+      items,
+      total,
+      useMockData,
+      navigateToReceipt,
+      adjustStock,
+      childName,
+      childClass,
+      parentPhone,
+      orderNotes,
+      buildBuyerDetailsPayload,
+    ],
   );
 
   const handleCollectPayment = useCallback(() => {
+    if (buyerClassMissing) {
+      toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
+      return;
+    }
     setShowPaymentChoice(true);
-  }, []);
+  }, [buyerClassMissing]);
 
   const runVerification = useCallback(async (ctx: NonNullable<typeof razorpayContextRef.current>) => {
     if (!ctx.sdkResult) return;
@@ -557,6 +597,10 @@ export default function CheckoutScreen() {
   }, [selectedCompany, total, currency, colors.tint, runVerification]);
 
   const handleRazorpayPayment = useCallback(async () => {
+    if (buyerClassMissing) {
+      toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
+      return;
+    }
     if (!companyId || !userId || items.length === 0) {
       if (!userId) toast.show({ type: 'error', message: Strings.company.pleaseSignInToPlaceOrder });
       return;
@@ -595,6 +639,8 @@ export default function CheckoutScreen() {
         cash_share: payment.cash_share,
         online_share: payment.online_share,
         status: 'pending',
+        notes: orderNotes.trim() || undefined,
+        buyer_details: buildBuyerDetailsPayload(),
         order_items: cartToOrderItems(items, requestDetailsForOrder),
       };
       const result = await createOrder(orderInput, useMockData);
@@ -639,7 +685,22 @@ export default function CheckoutScreen() {
       setOrderError(msg);
       setSubmitting(false);
     }
-  }, [companyId, userId, items, total, currency, selectedCompany, useMockData, openRazorpaySDK, childName, childClass, parentPhone]);
+  }, [
+    buyerClassMissing,
+    companyId,
+    userId,
+    items,
+    total,
+    currency,
+    selectedCompany,
+    useMockData,
+    openRazorpaySDK,
+    childName,
+    childClass,
+    parentPhone,
+    orderNotes,
+    buildBuyerDetailsPayload,
+  ]);
 
   const handleRazorpayRetry = useCallback(() => {
     const ctx = razorpayContextRef.current;
@@ -710,6 +771,10 @@ export default function CheckoutScreen() {
   }, [total]);
 
   const handleSplitConfirm = useCallback(() => {
+    if (buyerClassMissing) {
+      toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
+      return;
+    }
     const cash_share = roundMoney(parseFloat(splitCashInput || '0') || 0);
     const online_share = roundMoney(parseFloat(splitOnlineInput || '0') || 0);
     const sum = roundMoney(cash_share + online_share);
@@ -725,7 +790,7 @@ export default function CheckoutScreen() {
     setSplitCashInput('');
     setSplitOnlineInput('');
     submitOrder(CheckoutButton.SPLIT, { cash_share, online_share });
-  }, [splitCashInput, splitOnlineInput, total, currency, submitOrder]);
+  }, [splitCashInput, splitOnlineInput, total, currency, submitOrder, buyerClassMissing]);
 
   /** Razorpay PG from bottom bar shortcut. */
   const handleRazorpayPG = useCallback(() => {
@@ -734,8 +799,12 @@ export default function CheckoutScreen() {
 
   /** For negative totals (refunds): complete with Cash (no payment choice popup). */
   const handleCompleteOrder = useCallback(() => {
+    if (buyerClassMissing) {
+      toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
+      return;
+    }
     submitOrder(CheckoutButton.CASH);
-  }, [submitOrder]);
+  }, [submitOrder, buyerClassMissing]);
 
   const isRefund = total < 0;
 
@@ -788,8 +857,7 @@ export default function CheckoutScreen() {
             );
           })}
 
-          {/* Requested items section — always rendered once any exist */}
-          {checkoutRequestItems.length > 0 && (
+          {showRequested && checkoutRequestItems.length > 0 ? (
             <>
               <View style={styles.checkoutSectionSeparator}>
                 <View style={[styles.checkoutSectionLine, { backgroundColor: CHECKOUT_REQUEST_PURPLE + '40' }]} />
@@ -814,7 +882,70 @@ export default function CheckoutScreen() {
                 );
               })}
             </>
-          )}
+          ) : null}
+        </View>
+
+        {askBuyerDetails ? (
+          <View style={styles.checkoutFormBlock}>
+            <ThemedText type="defaultSemiBold" style={{ color: colors.text, marginBottom: 8 }}>
+              {Strings.company.checkoutBuyerDetailsTitle}
+            </ThemedText>
+            <TextInput
+              style={[styles.buyerFieldInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
+              placeholder={Strings.company.checkoutBuyerStudentName}
+              placeholderTextColor={colors.icon}
+              value={buyerStudentName}
+              onChangeText={setBuyerStudentName}
+              returnKeyType="next"
+            />
+            <TextInput
+              style={[styles.buyerFieldInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
+              placeholder={Strings.company.checkoutBuyerStudentClass}
+              placeholderTextColor={colors.icon}
+              value={buyerStudentClass}
+              onChangeText={setBuyerStudentClass}
+              returnKeyType="next"
+            />
+            <TextInput
+              style={[styles.buyerFieldInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
+              placeholder={Strings.company.checkoutBuyerParentName}
+              placeholderTextColor={colors.icon}
+              value={buyerParentName}
+              onChangeText={setBuyerParentName}
+              returnKeyType="next"
+            />
+            <TextInput
+              style={[styles.buyerFieldInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
+              placeholder={Strings.company.checkoutBuyerParentPhone}
+              placeholderTextColor={colors.icon}
+              value={buyerParentPhone}
+              onChangeText={setBuyerParentPhone}
+              keyboardType="phone-pad"
+              returnKeyType="done"
+            />
+          </View>
+        ) : null}
+
+        <View style={styles.checkoutFormBlock}>
+          <ThemedText style={[styles.formLabel, { color: colors.text }]}>
+            {Strings.company.checkoutOrderNotesLabel}
+          </ThemedText>
+          <TextInput
+            style={[
+              styles.notesInput,
+              {
+                borderColor: colors.icon + '40',
+                color: colors.text,
+                backgroundColor: colors.background,
+              },
+            ]}
+            placeholder={Strings.company.checkoutOrderNotesPlaceholder}
+            placeholderTextColor={colors.icon}
+            value={orderNotes}
+            onChangeText={setOrderNotes}
+            multiline
+            textAlignVertical="top"
+          />
         </View>
       </ScrollView>
 
@@ -825,12 +956,29 @@ export default function CheckoutScreen() {
           { backgroundColor: colors.background, borderTopColor: colors.icon + '20', paddingBottom: 16 + insets.bottom },
         ]}
       >
-        <View style={styles.bottomTotalRow}>
-          <ThemedText style={[styles.totalLabel, { color: colors.icon }]}>{Strings.company.total}</ThemedText>
-          <ThemedText type="subtitle" style={[styles.totalValue, total < 0 && { color: '#C62828' }]}>
-            {total < 0 ? '- ' : ''}{formatPrice(Math.abs(total), currency)}
+        <View style={styles.bottomSummarySingleRow}>
+          <ThemedText style={[styles.bottomSummaryLeft, { color: colors.text }]} numberOfLines={1}>
+            {Strings.company.checkoutTotalItemsEquals} {itemCount}
+          </ThemedText>
+          <ThemedText
+            style={[
+              styles.bottomSummaryRight,
+              { color: colors.text },
+              total < 0 && { color: '#C62828' },
+            ]}
+            numberOfLines={2}
+          >
+            {Strings.company.checkoutTotalAmountEquals}{' '}
+            {total < 0 ? '- ' : ''}
+            {formatPrice(Math.abs(total), currency)}
           </ThemedText>
         </View>
+
+        {buyerClassMissing && (
+          <ThemedText style={styles.stockWarning}>
+            {Strings.company.checkoutStudentClassRequiredToast}
+          </ThemedText>
+        )}
 
         {hasStockError && (
           <ThemedText style={styles.stockWarning}>
@@ -848,10 +996,13 @@ export default function CheckoutScreen() {
           {isRefund ? (
             <Pressable
               onPress={handleCompleteOrder}
-              disabled={submitting || hasStockError}
+              disabled={submitting || blockPaymentActions}
               style={[
                 styles.optionBtn,
-                { backgroundColor: hasStockError ? colors.icon + '40' : colors.tint, borderColor: hasStockError ? colors.icon + '40' : colors.tint },
+                {
+                  backgroundColor: blockPaymentActions ? colors.icon + '40' : colors.tint,
+                  borderColor: blockPaymentActions ? colors.icon + '40' : colors.tint,
+                },
               ]}
             >
               {submitting ? (
@@ -867,10 +1018,13 @@ export default function CheckoutScreen() {
             <>
               <Pressable
                 onPress={handleCollectPayment}
-                disabled={submitting || hasStockError}
+                disabled={submitting || blockPaymentActions}
                 style={[
                   styles.optionBtn,
-                  { backgroundColor: hasStockError ? colors.icon + '40' : colors.tint, borderColor: hasStockError ? colors.icon + '40' : colors.tint },
+                  {
+                    backgroundColor: blockPaymentActions ? colors.icon + '40' : colors.tint,
+                    borderColor: blockPaymentActions ? colors.icon + '40' : colors.tint,
+                  },
                 ]}
               >
                 {submitting ? (
@@ -886,7 +1040,7 @@ export default function CheckoutScreen() {
               {showOnlinePG && (
                 <Pressable
                   onPress={handleRazorpayPG}
-                  disabled={submitting || hasStockError}
+                  disabled={submitting || blockPaymentActions}
                   style={[styles.optionBtn, { backgroundColor: colors.background, borderColor: colors.icon + '40' }]}
                 >
                   <IconSymbol name="creditcard" size={24} color={colors.text} />
@@ -1087,9 +1241,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 24, paddingBottom: 16 },
+  scrollContent: { paddingHorizontal: 24, paddingBottom: 24 },
   title: { marginTop: 12 },
   subtitle: { fontSize: 15, lineHeight: 22, marginBottom: 16 },
+  checkoutFormBlock: { marginBottom: 18, gap: 8 },
+  formLabel: { fontSize: 14, fontWeight: '600' },
+  notesInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    minHeight: 88,
+  },
+  buyerFieldInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+  },
   /* ---- Item cards (checkout: name + article code, right: qty × price = subtotal) ---- */
   itemsSection: { gap: 10, marginBottom: 16 },
   itemCard: { borderRadius: 12, borderWidth: 1, padding: 12 },
@@ -1112,7 +1283,29 @@ const styles = StyleSheet.create({
   checkoutSectionLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   /* ---- Bottom bar ---- */
   bottomBar: { borderTopWidth: 1, paddingHorizontal: 24, paddingTop: 12 },
-  bottomTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  bottomSummarySingleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 8,
+    gap: 12,
+  },
+  bottomSummaryLeft: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  bottomSummaryRight: {
+    flexShrink: 0,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 20,
+    textAlign: 'right',
+    marginLeft: 12,
+  },
   stockWarning: { color: '#C62828', fontSize: 13, textAlign: 'center', marginBottom: 8 },
   orderErrorBanner: {
     backgroundColor: '#FFEBEE',
@@ -1146,8 +1339,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
   },
-  totalLabel: { fontSize: 14 },
-  totalValue: { fontSize: 18, fontWeight: '700' },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
