@@ -262,16 +262,10 @@ const auth: AuthProvider = {
 
   async getSession() {
     const client = await nhost();
-    // Force-refresh on cold start: the stored access token is likely expired.
-    // refreshSession(0) reads the refresh token from storage and requests a
-    // fresh access token from the server. If no stored session or the refresh
-    // token is revoked, it returns null (user must sign in again).
     try {
       const refreshed = await client.refreshSession(0);
       if (refreshed) return toAppSession(refreshed);
     } catch { /* network error — fall through to cached session */ }
-    // Fallback: return cached session so the UI shows user info while offline.
-    // The SDK middleware will retry the refresh on next API request.
     const cached = client.getUserSession();
     return toAppSession(cached);
   },
