@@ -1,18 +1,21 @@
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Modal,
   Platform,
   Pressable,
   ScrollView,
   SectionList,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams } from 'expo-router';
 
+import type { FetchOrdersOptions } from '@/core/api/orders';
+import { fetchOrderItems, fetchOrders, fetchOrdersWithItemsForExport } from '@/core/api/orders';
+import { SalesDatePresetPicker, type SalesDatePreset } from '@/core/components/sales-date-preset-picker';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -20,21 +23,19 @@ import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { fetchOrderItems, fetchOrders } from '@/core/api/orders';
-import type { FetchOrdersOptions } from '@/core/api/orders';
 import { formatDate, formatPrice, roundMoney } from '@/core/services/format';
+import { downloadSalesOrdersPdf } from '@/core/services/pdf/sales-export-pdf';
+import { toast } from '@/core/services/toast';
+import { Strings } from '@/core/strings';
 import type { OrderItem, OrderStats, OrderStatusEnum, OrderWithItems } from '@/core/types/order';
 import { getPaymentDisplayKey, PaymentType } from '@/core/types/order';
-import { Strings } from '@/core/strings';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type FilterValue = OrderStatusEnum | 'all' | 'refund' | 'cash' | 'online';
 
-type DatePreset = 'today' | '3days' | 'custom';
-
 interface DateFilter {
-  preset: DatePreset | null;
+  preset: SalesDatePreset | null;
   from: string;
   to: string;
 }
@@ -47,6 +48,11 @@ interface OrderSection {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_LIMIT = 50;
+
+/** Date filter sheet: selected preset / calendar / Apply (not app theme tint). */
+const DATE_FILTER_SHEET_ACCENT = '#45B300';
+/** Header badge when a date filter is applied. */
+const DATE_FILTER_ACTIVE_BADGE = '#C62828';
 
 const FILTERS: { label: string; value: FilterValue }[] = [
   { label: Strings.company.all, value: 'all' },
@@ -123,6 +129,85 @@ function parseDateInput(str: string): Date | null {
   return null;
 }
 
+/** Prefer YYYY-MM-DD, then legacy typed dates. */
+function parseFilterDate(str: string): Date | null {
+  const t = str.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    const [y, m, d] = t.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  return parseDateInput(t);
+}
+
+function toYyyyMmDd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function dateFilterToRangeYmd(fromStr: string, toStr: string): { from: string; to: string } {
+  const a = parseFilterDate(fromStr);
+  const b = parseFilterDate(toStr);
+  if (a && b) return { from: toYyyyMmDd(a), to: toYyyyMmDd(b) };
+  return { from: '', to: '' };
+}
+
+/** ISO bounds + label for PDF export (web). */
+function pdfExportRange(
+  preset: SalesDatePreset,
+  customFrom: string,
+  customTo: string,
+): { dateFrom: string; dateTo: string; rangeLabel: string } | null {
+  const now = new Date();
+  if (preset === 'today') {
+    return {
+      dateFrom: startOfDay(now).toISOString(),
+      dateTo: endOfDay(now).toISOString(),
+      rangeLabel: Strings.company.today,
+    };
+  }
+  if (preset === '3days') {
+    const from = new Date(now);
+    from.setDate(now.getDate() - 2);
+    return {
+      dateFrom: startOfDay(from).toISOString(),
+      dateTo: endOfDay(now).toISOString(),
+      rangeLabel: Strings.company.last3Days,
+    };
+  }
+  if (preset === '7days') {
+    const from = new Date(now);
+    from.setDate(now.getDate() - 6);
+    return {
+      dateFrom: startOfDay(from).toISOString(),
+      dateTo: endOfDay(now).toISOString(),
+      rangeLabel: Strings.company.last7Days,
+    };
+  }
+  if (preset === '1month') {
+    const from = new Date(now);
+    from.setDate(now.getDate() - 29);
+    return {
+      dateFrom: startOfDay(from).toISOString(),
+      dateTo: endOfDay(now).toISOString(),
+      rangeLabel: Strings.company.last1Month,
+    };
+  }
+  if (preset === 'custom') {
+    const from = parseFilterDate(customFrom);
+    const to = parseFilterDate(customTo);
+    if (!from || !to) return null;
+    return {
+      dateFrom: startOfDay(from).toISOString(),
+      dateTo: endOfDay(to).toISOString(),
+      rangeLabel: Strings.company.customRange,
+    };
+  }
+  return null;
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function OrdersScreen() {
@@ -138,9 +223,14 @@ export default function OrdersScreen() {
   // Date filter modal
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilter>({ preset: null, from: '', to: '' });
-  const [draftPreset, setDraftPreset] = useState<DatePreset | null>(null);
-  const [draftFrom, setDraftFrom] = useState('');
-  const [draftTo, setDraftTo] = useState('');
+  const [draftPreset, setDraftPreset] = useState<SalesDatePreset | null>(null);
+  const [draftRange, setDraftRange] = useState({ from: '', to: '' });
+
+  // Web-only PDF export modal
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportPreset, setExportPreset] = useState<SalesDatePreset>('today');
+  const [exportRange, setExportRange] = useState({ from: '', to: '' });
+  const [exportLoading, setExportLoading] = useState(false);
 
   // Orders data
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
@@ -180,9 +270,21 @@ export default function OrdersScreen() {
       from.setDate(now.getDate() - 2);
       opts.dateFrom = startOfDay(from).toISOString();
       opts.dateTo = endOfDay(now).toISOString();
+    } else if (dateFilter.preset === '7days') {
+      const now = new Date();
+      const from = new Date(now);
+      from.setDate(now.getDate() - 6);
+      opts.dateFrom = startOfDay(from).toISOString();
+      opts.dateTo = endOfDay(now).toISOString();
+    } else if (dateFilter.preset === '1month') {
+      const now = new Date();
+      const from = new Date(now);
+      from.setDate(now.getDate() - 29);
+      opts.dateFrom = startOfDay(from).toISOString();
+      opts.dateTo = endOfDay(now).toISOString();
     } else if (dateFilter.preset === 'custom') {
-      const from = parseDateInput(dateFilter.from);
-      const to = parseDateInput(dateFilter.to);
+      const from = parseFilterDate(dateFilter.from);
+      const to = parseFilterDate(dateFilter.to);
       if (from) opts.dateFrom = startOfDay(from).toISOString();
       if (to) opts.dateTo = endOfDay(to).toISOString();
     }
@@ -280,22 +382,106 @@ export default function OrdersScreen() {
 
   const openDateFilter = useCallback(() => {
     setDraftPreset(dateFilter.preset);
-    setDraftFrom(dateFilter.from);
-    setDraftTo(dateFilter.to);
+    if (dateFilter.preset === 'custom') {
+      setDraftRange(dateFilterToRangeYmd(dateFilter.from, dateFilter.to));
+    } else {
+      setDraftRange({ from: '', to: '' });
+    }
     setShowDateFilter(true);
   }, [dateFilter]);
 
   const applyDateFilter = useCallback(() => {
-    setDateFilter({ preset: draftPreset, from: draftFrom, to: draftTo });
+    if (draftPreset === null) {
+      setShowDateFilter(false);
+      return;
+    }
+    if (draftPreset === 'custom') {
+      if (!draftRange.from || !draftRange.to) return;
+      setDateFilter({ preset: 'custom', from: draftRange.from, to: draftRange.to });
+    } else {
+      setDateFilter({ preset: draftPreset, from: '', to: '' });
+    }
     setShowDateFilter(false);
-  }, [draftPreset, draftFrom, draftTo]);
+  }, [draftPreset, draftRange]);
 
   const clearDateFilter = useCallback(() => {
     setDateFilter({ preset: null, from: '', to: '' });
     setShowDateFilter(false);
   }, []);
 
+  const onSelectFilterPreset = useCallback((p: SalesDatePreset) => {
+    setDraftPreset(p);
+    if (p !== 'custom') setDraftRange({ from: '', to: '' });
+  }, []);
+
+  const onFilterCalendarDay = useCallback((day: { dateString: string }) => {
+    const d = day.dateString;
+    setDraftRange(({ from, to }) => {
+      if (!from || to) return { from: d, to: '' };
+      if (d < from) return { from: d, to: from };
+      return { from, to: d };
+    });
+  }, []);
+
   const hasActiveDateFilter = dateFilter.preset !== null;
+
+  const exportRangeValid = useMemo(
+    () => pdfExportRange(exportPreset, exportRange.from, exportRange.to) != null,
+    [exportPreset, exportRange.from, exportRange.to],
+  );
+
+  const openExportModal = useCallback(() => {
+    setExportPreset('today');
+    setExportRange({ from: '', to: '' });
+    setShowExportModal(true);
+  }, []);
+
+  const onSelectExportPreset = useCallback((p: SalesDatePreset) => {
+    setExportPreset(p);
+    if (p !== 'custom') setExportRange({ from: '', to: '' });
+  }, []);
+
+  const onExportCalendarDay = useCallback((day: { dateString: string }) => {
+    const d = day.dateString;
+    setExportRange(({ from, to }) => {
+      if (!from || to) return { from: d, to: '' };
+      if (d < from) return { from: d, to: from };
+      return { from, to: d };
+    });
+  }, []);
+
+  const handleExportPdf = useCallback(async () => {
+    const range = pdfExportRange(exportPreset, exportRange.from, exportRange.to);
+    if (!range) {
+      toast.show({ type: 'error', message: Strings.company.exportPdfCustomInvalid });
+      return;
+    }
+    setExportLoading(true);
+    try {
+      const orders = await fetchOrdersWithItemsForExport(
+        id,
+        { dateFrom: range.dateFrom, dateTo: range.dateTo },
+        useMockData,
+      );
+      if (!orders.length) {
+        toast.show({ type: 'info', message: Strings.company.exportPdfEmpty });
+        return;
+      }
+      downloadSalesOrdersPdf({
+        companyId: id,
+        rangeLabel: range.rangeLabel,
+        dateFromIso: range.dateFrom,
+        dateToIso: range.dateTo,
+        orders,
+      });
+      toast.show({ type: 'success', message: Strings.company.exportPdfSuccess });
+      setShowExportModal(false);
+    } catch {
+      toast.show({ type: 'error', message: Strings.company.exportPdfError });
+    } finally {
+      if (mountedRef.current) setExportLoading(false);
+    }
+  }, [id, useMockData, exportPreset, exportRange.from, exportRange.to]);
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
@@ -380,6 +566,18 @@ export default function OrdersScreen() {
           title: Strings.company.orders,
           headerRight: () => (
             <View style={styles.headerRightRow}>
+              {Platform.OS === 'web' && (
+                <Pressable
+                  onPress={openExportModal}
+                  style={styles.headerExportBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={Strings.company.exportPdf}
+                >
+                  <ThemedText style={[styles.headerExportText, { color: colors.tint }]}>
+                    {Strings.company.exportPdf}
+                  </ThemedText>
+                </Pressable>
+              )}
               <Pressable onPress={handleRefresh} hitSlop={10} style={styles.headerIconBtn}>
                 <IconSymbol name="arrow.clockwise" size={22} color={colors.icon} />
               </Pressable>
@@ -387,10 +585,10 @@ export default function OrdersScreen() {
                 <IconSymbol
                   name="line.3.horizontal.decrease.circle"
                   size={24}
-                  color={hasActiveDateFilter ? colors.tint : colors.icon}
+                  color={hasActiveDateFilter ? DATE_FILTER_SHEET_ACCENT : colors.icon}
                 />
                 {hasActiveDateFilter && (
-                  <View style={[styles.filterActiveDot, { backgroundColor: colors.tint }]} />
+                  <View style={[styles.filterActiveDot, { backgroundColor: DATE_FILTER_ACTIVE_BADGE }]} />
                 )}
               </Pressable>
             </View>
@@ -615,78 +813,117 @@ export default function OrdersScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.dateFilterBody}>
-            {/* Preset chips */}
-            {([
-              { value: 'today' as DatePreset, label: Strings.company.today },
-              { value: '3days' as DatePreset, label: Strings.company.last3Days },
-              { value: 'custom' as DatePreset, label: Strings.company.customRange },
-            ]).map((p) => {
-              const active = draftPreset === p.value;
-              return (
-                <Pressable
-                  key={p.value}
-                  onPress={() => setDraftPreset(active ? null : p.value)}
-                  style={[
-                    styles.datePresetChip,
-                    active
-                      ? { backgroundColor: colors.tint, borderColor: colors.tint }
-                      : { backgroundColor: 'transparent', borderColor: colors.icon + '40' },
-                  ]}
-                >
-                  <ThemedText
-                    includeFontPadding={false}
-                    style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}
-                  >
-                    {p.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-
-            {/* Custom date inputs */}
-            {draftPreset === 'custom' && (
-              <View style={styles.customDatesRow}>
-                <View style={styles.customDateField}>
-                  <ThemedText style={[styles.customDateLabel, { color: colors.icon }]}>{Strings.company.from}</ThemedText>
-                  <TextInput
-                    style={[styles.customDateInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
-                    placeholder="DD MMM YYYY"
-                    placeholderTextColor={colors.icon}
-                    value={draftFrom}
-                    onChangeText={setDraftFrom}
-                    keyboardType={Platform.OS === 'ios' ? 'default' : 'default'}
-                  />
-                </View>
-                <View style={styles.customDateField}>
-                  <ThemedText style={[styles.customDateLabel, { color: colors.icon }]}>{Strings.company.to}</ThemedText>
-                  <TextInput
-                    style={[styles.customDateInput, { borderColor: colors.icon + '40', color: colors.text, backgroundColor: colors.background }]}
-                    placeholder="DD MMM YYYY"
-                    placeholderTextColor={colors.icon}
-                    value={draftTo}
-                    onChangeText={setDraftTo}
-                    keyboardType={Platform.OS === 'ios' ? 'default' : 'default'}
-                  />
-                </View>
-              </View>
-            )}
-
+          <ScrollView
+            style={styles.dateFilterScroll}
+            contentContainerStyle={styles.dateFilterBody}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <SalesDatePresetPicker
+              activePreset={draftPreset}
+              onSelectPreset={onSelectFilterPreset}
+              rangeFrom={draftRange.from}
+              rangeTo={draftRange.to}
+              onDayPress={onFilterCalendarDay}
+              tint={DATE_FILTER_SHEET_ACCENT}
+              colors={{ text: colors.text, icon: colors.icon, background: colors.background }}
+            />
             <View style={styles.dateFilterActions}>
               <Pressable
                 onPress={clearDateFilter}
-                style={[styles.dateFilterBtn, { borderColor: colors.icon + '40', backgroundColor: 'transparent' }]}
+                style={[styles.dateFilterBtn, { borderColor: '#C62828', backgroundColor: '#FFEBEE' }]}
               >
-                <ThemedText style={{ color: colors.text, fontWeight: '600' }}>{Strings.company.clearFilter}</ThemedText>
+                <ThemedText style={{ color: '#C62828', fontWeight: '600' }}>{Strings.company.clearFilter}</ThemedText>
               </Pressable>
               <Pressable
                 onPress={applyDateFilter}
-                style={[styles.dateFilterBtn, { backgroundColor: colors.tint, borderColor: colors.tint }]}
+                disabled={
+                  draftPreset === null ||
+                  (draftPreset === 'custom' && (!draftRange.from || !draftRange.to))
+                }
+                style={[
+                  styles.dateFilterBtn,
+                  {
+                    backgroundColor:
+                      draftPreset === null ||
+                      (draftPreset === 'custom' && (!draftRange.from || !draftRange.to))
+                        ? colors.icon + '35'
+                        : colors.tint,
+                    borderColor:
+                      draftPreset === null ||
+                      (draftPreset === 'custom' && (!draftRange.from || !draftRange.to))
+                        ? 'transparent'
+                        : colors.tint,
+                  },
+                ]}
               >
                 <ThemedText style={{ color: '#fff', fontWeight: '600' }}>{Strings.company.applyFilter}</ThemedText>
               </Pressable>
             </View>
+          </ScrollView>
+        </ThemedView>
+      </Modal>
+
+      {/* Web-only: export sales PDF */}
+      <Modal
+        visible={showExportModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !exportLoading && setShowExportModal(false)}
+      >
+        <Pressable style={styles.dateFilterOverlay} onPress={() => !exportLoading && setShowExportModal(false)} />
+        <ThemedView style={[styles.dateFilterSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.icon + '25' }]}>
+            <ThemedText type="subtitle" style={styles.modalTitle}>
+              {Strings.company.exportPdfTitle}
+            </ThemedText>
+            <Pressable
+              onPress={() => !exportLoading && setShowExportModal(false)}
+              hitSlop={12}
+              style={styles.modalCloseBtn}
+            >
+              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
+            </Pressable>
           </View>
+
+          <ScrollView
+            style={styles.dateFilterScroll}
+            contentContainerStyle={styles.dateFilterBody}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <SalesDatePresetPicker
+              activePreset={exportPreset}
+              onSelectPreset={(p) => !exportLoading && onSelectExportPreset(p)}
+              rangeFrom={exportRange.from}
+              rangeTo={exportRange.to}
+              onDayPress={onExportCalendarDay}
+              tint={colors.tint}
+              colors={{ text: colors.text, icon: colors.icon, background: colors.background }}
+              disabled={exportLoading}
+            />
+
+            <View style={styles.dateFilterActions}>
+              <Pressable
+                onPress={handleExportPdf}
+                disabled={!exportRangeValid || exportLoading}
+                style={[
+                  styles.dateFilterBtn,
+                  {
+                    backgroundColor: !exportRangeValid || exportLoading ? colors.icon + '35' : colors.tint,
+                    borderColor: !exportRangeValid || exportLoading ? 'transparent' : colors.tint,
+                    flex: 1,
+                  },
+                ]}
+              >
+                {exportLoading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <ThemedText style={{ color: '#fff', fontWeight: '600' }}>{Strings.company.exportPdfDownload}</ThemedText>
+                )}
+              </Pressable>
+            </View>
+          </ScrollView>
         </ThemedView>
       </Modal>
     </ThemedView>
@@ -700,6 +937,8 @@ const styles = StyleSheet.create({
 
   // Header buttons
   headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },
+  headerExportBtn: { paddingVertical: 6, paddingHorizontal: 8, marginRight: 2 },
+  headerExportText: { fontSize: 14, fontWeight: '600' },
   headerIconBtn: { padding: 4 },
   filterIconBtn: { padding: 4, position: 'relative' },
   filterActiveDot: {
@@ -885,8 +1124,10 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     overflow: 'hidden',
+    maxHeight: Dimensions.get('window').height * (Platform.OS === 'web' ? 0.9 : 0.88),
   },
-  dateFilterBody: { padding: 16, gap: 12 },
+  dateFilterScroll: { maxHeight: Platform.OS === 'web' ? 520 : 480 },
+  dateFilterBody: { padding: 16, gap: 12, paddingBottom: 20 },
   datePresetChip: {
     paddingHorizontal: 16,
     paddingVertical: 12,

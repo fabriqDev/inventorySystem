@@ -5,6 +5,7 @@ import type {
   CreateRazorpayOrderInput,
   CreateRazorpayOrderResult,
   FetchOrdersOptions,
+  FetchOrdersWithItemsExportOptions,
   UpdateOrderStatusInput,
   VerifyRazorpayPaymentInput,
   VerifyRazorpayPaymentResult,
@@ -12,7 +13,7 @@ import type {
 import { createMockOrder, getMockOrders } from '@/core/services/mock-data';
 import type { OrderItem, OrdersResponse, OrderWithItems } from '@/core/types/order';
 
-export type { FetchOrdersOptions };
+export type { FetchOrdersOptions, FetchOrdersWithItemsExportOptions };
 
 export async function fetchOrders(
   companyId: string,
@@ -29,6 +30,23 @@ export async function fetchOrderItems(
 ): Promise<OrderItem[]> {
   if (useMock) return [];
   return backend.data.fetchOrderItems(orderId);
+}
+
+export async function fetchOrdersWithItemsForExport(
+  companyId: string,
+  opts: FetchOrdersWithItemsExportOptions,
+  useMock: boolean,
+): Promise<OrderWithItems[]> {
+  if (useMock) {
+    const all = await getMockOrders(companyId);
+    const fromT = new Date(opts.dateFrom).getTime();
+    const toT = new Date(opts.dateTo).getTime();
+    return all.filter((o) => {
+      const t = new Date(o.created_at).getTime();
+      return t >= fromT && t <= toT;
+    });
+  }
+  return backend.data.fetchOrdersWithItemsForExport(companyId, opts);
 }
 
 export async function createOrder(

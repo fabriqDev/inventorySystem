@@ -12,6 +12,7 @@ import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/types/requested-orders';
 import { toast } from '@/core/services/toast';
 import { PaymentProvider, PaymentType } from '@/core/types/order';
+import type { OrderWithItems } from '@/core/types/order';
 import type { Product } from '@/core/types/product';
 import type {
   RequestedOrderLine,
@@ -30,6 +31,7 @@ import type {
   CreateTransferResult,
   DataProvider,
   FetchOrdersOptions,
+  FetchOrdersWithItemsExportOptions,
   UpdateOrderStatusInput,
   VerifyRazorpayPaymentInput,
   VerifyRazorpayPaymentResult,
@@ -480,6 +482,50 @@ const ORDER_ITEMS_QUERY = `
   }
 `;
 
+const ORDERS_EXPORT_WITH_ITEMS_QUERY = `
+  query ExportOrdersWithItems(
+    $companyId: uuid!
+    $limit: Int!
+    $offset: Int!
+    $dateFrom: timestamptz!
+    $dateTo: timestamptz!
+  ) {
+    order_history(
+      where: {
+        company_id: { _eq: $companyId }
+        created_at: { _gte: $dateFrom, _lte: $dateTo }
+      }
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      order_id
+      company_id
+      total
+      refund_amount
+      payment_type
+      payment_provider
+      cash_share
+      online_share
+      created_at
+      status
+      subtotal
+      order_items {
+        article_code
+        product_name
+        quantity
+        unit_price
+        total
+        transaction_type
+        product {
+          size
+        }
+      }
+    }
+  }
+`;
+
+const EXPORT_ORDERS_PAGE_LIMIT = 50;
 
 const CREATE_ORDER_MUTATION = `
   mutation CreateOrder($order: order_history_insert_input!) {
@@ -830,6 +876,33 @@ function mapProductInventoryRow(row: any): Product {
 
 
 
+function mapOrderHistoryRowWithItems(o: any, companyId: string): OrderWithItems {
+  const items = (o.order_items ?? []).map((i: any) => ({
+    article_code: i.article_code ?? '',
+    product_name: i.product_name ?? '',
+    size: i.product?.size ?? undefined,
+    quantity: i.quantity ?? 0,
+    unit_price: i.unit_price ?? 0,
+    total: i.total ?? 0,
+    transaction_type: i.transaction_type ?? 'sale',
+  }));
+  return {
+    server_order_id: o.order_id,
+    company_id: o.company_id ?? companyId,
+    subtotal: o.subtotal ?? o.total ?? 0,
+    total: o.total ?? 0,
+    refund_amount: o.refund_amount ?? 0,
+    currency: CURRENCY_DEFAULT,
+    payment_type: o.payment_type ?? PaymentType.CASH,
+    payment_provider: o.payment_provider ?? PaymentProvider.NONE,
+    cash_share: o.cash_share ?? 0,
+    online_share: o.online_share ?? 0,
+    status: o.status ?? 'success',
+    created_at: o.created_at ?? new Date().toISOString(),
+    items,
+  };
+}
+
 function mapTransferRow(row: any): import('@/core/types/transfer').InventoryTransfer {
   return {
     id: row.id,
@@ -969,6 +1042,31 @@ const data: DataProvider = {
       total: i.total ?? 0,
       transaction_type: i.transaction_type ?? 'sale',
     }));
+  },
+
+  async fetchOrdersWithItemsForExport(companyId, opts: FetchOrdersWithItemsExportOptions) {
+    const { dateFrom, dateTo } = opts;
+    const all: OrderWithItems[] = [];
+    let offset = 0;
+    for (;;) {
+      const d = await gqlRequest<any>({
+        query: ORDERS_EXPORT_WITH_ITEMS_QUERY,
+        variables: {
+          companyId,
+          limit: EXPORT_ORDERS_PAGE_LIMIT,
+          offset,
+          dateFrom,
+          dateTo,
+        },
+      });
+      const rows = d?.order_history ?? [];
+      for (const row of rows) {
+        all.push(mapOrderHistoryRowWithItems(row, companyId));
+      }
+      if (rows.length < EXPORT_ORDERS_PAGE_LIMIT) break;
+      offset += EXPORT_ORDERS_PAGE_LIMIT;
+    }
+    return all;
   },
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null> {

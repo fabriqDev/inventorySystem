@@ -50,6 +50,12 @@ export interface FetchOrdersOptions {
   dateTo?: string;
 }
 
+/** Required date bounds for PDF export (orders with line items). */
+export interface FetchOrdersWithItemsExportOptions {
+  dateFrom: string;
+  dateTo: string;
+}
+
 
 /** Student details for a requested item. */
 export interface RequestDetails {
@@ -147,6 +153,10 @@ export interface DataProvider {
   fetchProductByBarcode(companyId: string, barcode: string): Promise<Product | null>;
   fetchOrders(companyId: string, opts: FetchOrdersOptions): Promise<OrdersResponse>;
   fetchOrderItems(orderId: string): Promise<OrderItem[]>;
+  fetchOrdersWithItemsForExport(
+    companyId: string,
+    opts: FetchOrdersWithItemsExportOptions,
+  ): Promise<OrderWithItems[]>;
   createOrder(input: CreateOrderInput): Promise<CreateOrderResult | null>;
   createRazorpayOrder(input: CreateRazorpayOrderInput): Promise<CreateRazorpayOrderResult>;
   verifyRazorpayPayment(input: VerifyRazorpayPaymentInput): Promise<VerifyRazorpayPaymentResult>;
