@@ -11,7 +11,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams } from 'expo-router';
 
-import { fetchRequestedOrderLines, fulfillOrderRequests } from '@/core/api/requested-orders';
+import { fetchRequestedOrderLines, fulfillSelectedItems } from '@/core/api/requested-orders';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
@@ -37,8 +37,9 @@ export default function RequestedOrderDetailScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [fulfilling, setFulfilling] = useState(false);
   const [selectedLine, setSelectedLine] = useState<RequestedOrderLine | null>(null);
+  const [confirmLine, setConfirmLine] = useState<RequestedOrderLine | null>(null);
+  const [fulfillingId, setFulfillingId] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -94,13 +95,13 @@ export default function RequestedOrderDetailScreen() {
       });
   }, [orderId, loadingMore, hasMore, loading, page, useMockData]);
 
-  const hasPending = lines.some((l) => l.fulfillment_status === 'pending');
-
-  const handleFulfill = useCallback(async () => {
-    if (!orderId || !hasPending || fulfilling) return;
-    setFulfilling(true);
+  const handleFulfillConfirm = useCallback(async () => {
+    if (!orderId || !confirmLine) return;
+    const requestId = confirmLine.request_id;
+    setConfirmLine(null);
+    setFulfillingId(requestId);
     try {
-      const res = await fulfillOrderRequests(orderId, useMockData);
+      const res = await fulfillSelectedItems(orderId, [requestId], useMockData);
       if (res.affected_rows > 0) {
         toast.show({ type: 'success', message: Strings.company.requestsMarkedFulfilled });
         reloadFromStart({ silent: true });
@@ -110,13 +111,14 @@ export default function RequestedOrderDetailScreen() {
     } catch {
       // gqlRequest already toasts
     } finally {
-      if (mountedRef.current) setFulfilling(false);
+      if (mountedRef.current) setFulfillingId(null);
     }
-  }, [orderId, hasPending, fulfilling, useMockData, reloadFromStart]);
+  }, [orderId, confirmLine, useMockData, reloadFromStart]);
 
   const renderLine = useCallback(
     ({ item }: { item: RequestedOrderLine }) => {
       const pending = item.fulfillment_status === 'pending';
+      const isFulfilling = fulfillingId === item.request_id;
       return (
         <Pressable
           onPress={() => setSelectedLine(item)}
@@ -126,29 +128,55 @@ export default function RequestedOrderDetailScreen() {
             pressed && { opacity: 0.92 },
           ]}
         >
-          <ThemedText type="defaultSemiBold" numberOfLines={2} style={{ color: colors.text }}>
-            {item.product_name}
-          </ThemedText>
-          <View style={styles.lineCodeBlock}>
-            <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
-              {Strings.company.articleCode}: {item.article_code}
-            </ThemedText>
-            {item.size ? (
-              <ThemedText style={[styles.lineMeta, styles.lineSizeBelow, { color: colors.icon }]}>
-                {Strings.company.size}: {item.size}
+          <View style={styles.lineRow}>
+            <View style={styles.lineContent}>
+              <ThemedText type="defaultSemiBold" numberOfLines={2} style={{ color: colors.text }}>
+                {item.product_name}
               </ThemedText>
+              <View style={styles.lineCodeBlock}>
+                <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
+                  {Strings.company.articleCode}: {item.article_code}
+                </ThemedText>
+                {item.size ? (
+                  <ThemedText style={[styles.lineMeta, styles.lineSizeBelow, { color: colors.icon }]}>
+                    {Strings.company.size}: {item.size}
+                  </ThemedText>
+                ) : null}
+              </View>
+              <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
+                {item.quantity} × {formatAmount(item.unit_price)} = {formatAmount(item.total)}
+              </ThemedText>
+              <ThemedText style={[styles.statusBadge, { color: pending ? '#E65100' : '#2E7D32' }]}>
+                {item.fulfillment_status}
+              </ThemedText>
+            </View>
+            {pending ? (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setConfirmLine(item);
+                }}
+                disabled={isFulfilling}
+                hitSlop={8}
+                style={[
+                  styles.fulfillItemBtn,
+                  { backgroundColor: isFulfilling ? colors.icon + '40' : colors.tint },
+                ]}
+              >
+                {isFulfilling ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <ThemedText style={styles.fulfillItemBtnText}>
+                    {Strings.company.fulfillRequest}
+                  </ThemedText>
+                )}
+              </Pressable>
             ) : null}
           </View>
-          <ThemedText style={[styles.lineMeta, { color: colors.icon }]}>
-            {item.quantity} × {formatAmount(item.unit_price)} = {formatAmount(item.total)}
-          </ThemedText>
-          <ThemedText style={[styles.statusBadge, { color: pending ? '#E65100' : '#2E7D32' }]}>
-            {item.fulfillment_status}
-          </ThemedText>
         </Pressable>
       );
     },
-    [colors],
+    [colors, fulfillingId],
   );
 
   if (!orderId) {
@@ -173,15 +201,10 @@ export default function RequestedOrderDetailScreen() {
           data={lines}
           keyExtractor={(item) => item.line_key}
           renderItem={renderLine}
-          contentContainerStyle={[styles.list, { paddingBottom: 120 + insets.bottom }]}
+          contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.35}
-          ListHeaderComponent={
-            <ThemedText style={[styles.hint, { color: colors.icon }]}>
-              {Strings.company.fulfillRequestHint}
-            </ThemedText>
-          }
           ListFooterComponent={
             loadingMore ? (
               <ActivityIndicator style={{ marginVertical: 16 }} color={colors.tint} />
@@ -196,32 +219,41 @@ export default function RequestedOrderDetailScreen() {
         />
       )}
 
-      <View
-        style={[
-          styles.bottomBar,
-          {
-            backgroundColor: colors.background,
-            borderTopColor: colors.icon + '20',
-            paddingBottom: 16 + insets.bottom,
-          },
-        ]}
+      {/* Confirmation popup */}
+      <Modal
+        visible={confirmLine != null}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setConfirmLine(null)}
       >
-        <Pressable
-          onPress={handleFulfill}
-          disabled={!hasPending || fulfilling}
-          style={[
-            styles.fulfillBtn,
-            { backgroundColor: hasPending && !fulfilling ? colors.tint : colors.icon + '40' },
-          ]}
-        >
-          {fulfilling ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <ThemedText style={styles.fulfillBtnText}>{Strings.company.fulfillRequest}</ThemedText>
-          )}
+        <Pressable style={styles.confirmOverlay} onPress={() => setConfirmLine(null)}>
+          <Pressable style={[styles.confirmCard, { backgroundColor: colors.background }]}>
+            <ThemedText type="defaultSemiBold" style={styles.confirmTitle}>
+              {Strings.company.fulfillConfirmMessage}
+            </ThemedText>
+            <View style={styles.confirmActions}>
+              <Pressable
+                onPress={() => setConfirmLine(null)}
+                style={[styles.confirmBtn, { borderColor: colors.icon + '40', borderWidth: 1 }]}
+              >
+                <ThemedText style={{ color: colors.text, fontWeight: '600' }}>
+                  {Strings.common.cancel}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={handleFulfillConfirm}
+                style={[styles.confirmBtn, { backgroundColor: colors.tint }]}
+              >
+                <ThemedText style={{ color: '#fff', fontWeight: '700' }}>
+                  {Strings.company.fulfillRequest}
+                </ThemedText>
+              </Pressable>
+            </View>
+          </Pressable>
         </Pressable>
-      </View>
+      </Modal>
 
+      {/* Line detail modal */}
       <Modal visible={selectedLine != null} animationType="slide" onRequestClose={() => setSelectedLine(null)}>
         <ThemedView style={[styles.modalRoot, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={[styles.modalHeader, { borderBottomColor: colors.icon + '25' }]}>
@@ -285,34 +317,57 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   centerText: { textAlign: 'center', padding: 24 },
   list: { paddingHorizontal: 16, paddingTop: 8 },
-  hint: { fontSize: 13, marginBottom: 12, lineHeight: 18 },
   lineCard: {
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,
   },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lineContent: {
+    flex: 1,
+    gap: 4,
+  },
   lineCodeBlock: { alignSelf: 'stretch' },
   lineMeta: { fontSize: 13 },
   lineSizeBelow: { marginTop: 6 },
   statusBadge: { fontSize: 12, fontWeight: '600', marginTop: 4 },
-  bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopWidth: 1,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-  },
-  fulfillBtn: {
-    paddingVertical: 14,
-    borderRadius: 12,
+  fulfillItemBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 48,
+    marginLeft: 10,
+    minHeight: 36,
   },
-  fulfillBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  fulfillItemBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  confirmCard: {
+    borderRadius: 14,
+    padding: 24,
+    maxWidth: 340,
+    width: '100%',
+    gap: 20,
+  },
+  confirmTitle: { fontSize: 16, lineHeight: 22, textAlign: 'center' },
+  confirmActions: { flexDirection: 'row', gap: 12 },
+  confirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
   modalRoot: { flex: 1 },
   modalHeader: {
     flexDirection: 'row',

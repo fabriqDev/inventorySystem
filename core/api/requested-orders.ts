@@ -26,10 +26,11 @@ export async function fetchRequestedOrderLines(
   return backend.data.fetchRequestedOrderLines(orderId, options);
 }
 
-export async function fulfillOrderRequests(
+export async function fulfillSelectedItems(
   orderId: string,
+  requestIds: string[],
   useMock: boolean,
 ): Promise<{ success: boolean; affected_rows: number }> {
   if (useMock) return { success: true, affected_rows: 0 };
-  return backend.data.fulfillOrderRequests(orderId);
+  return backend.data.fulfillSelectedItems(orderId, requestIds);
 }

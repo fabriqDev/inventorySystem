@@ -175,7 +175,7 @@ export interface DataProvider {
     orderId: string,
     opts: FetchRequestedOrderLinesOptions,
   ): Promise<RequestedOrderLinesResponse>;
-  fulfillOrderRequests(orderId: string): Promise<{ success: boolean; affected_rows: number }>;
+  fulfillSelectedItems(orderId: string, requestIds: string[]): Promise<{ success: boolean; affected_rows: number }>;
 }
 
 export interface BackendProvider {

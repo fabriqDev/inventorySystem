@@ -33,6 +33,8 @@ export interface RequestedOrderListRow {
 export interface RequestedOrderLine {
   /** Stable key: article_code + index or order_item id if present */
   line_key: string;
+  /** The `order_item_requests.id` — used for selective fulfillment. */
+  request_id: string;
   article_code: string;
   /** From joined `product.size` when available. */
   size?: string;

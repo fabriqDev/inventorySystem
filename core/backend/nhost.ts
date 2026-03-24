@@ -616,6 +616,7 @@ const REQUEST_ORDER_LINES_QUERY = `
         size
       }
       order_item_requests {
+        id
         student_name
         student_class
         phone_number
@@ -625,13 +626,14 @@ const REQUEST_ORDER_LINES_QUERY = `
   }
 `;
 
-const FULFILL_ORDER_REQUESTS_MUTATION = `
-  mutation FulfillOrderItemRequests($orderId: uuid!) {
+const FULFILL_SELECTIVE_ORDER_ITEMS_MUTATION = `
+  mutation FulfillSelectiveOrderItems($orderId: uuid!, $requestIds: [uuid!]!) {
     update_order_item_requests(
       where: {
         _and: [
+          { id: { _in: $requestIds } }
           { fulfillment_status: { _eq: "pending" } }
-          { order_item: { order_id: { _eq: $orderId }, transaction_type: { _eq: "request" } } }
+          { order_item: { order_id: { _eq: $orderId } } }
         ]
       }
       _set: { fulfillment_status: "fulfilled" }
@@ -849,6 +851,7 @@ function mapRequestedOrderLine(row: any, index: number): RequestedOrderLine {
   const size = sizeRaw != null && String(sizeRaw).trim() !== '' ? String(sizeRaw).trim() : undefined;
   return {
     line_key: `${ac}-${index}`,
+    request_id: String(r.id ?? ''),
     article_code: ac,
     size,
     product_name: row.product_name ?? '',
@@ -1192,10 +1195,10 @@ const data: DataProvider = {
     };
   },
 
-  async fulfillOrderRequests(orderId) {
+  async fulfillSelectedItems(orderId, requestIds) {
     const d = await gqlRequest<any>({
-      query: FULFILL_ORDER_REQUESTS_MUTATION,
-      variables: { orderId },
+      query: FULFILL_SELECTIVE_ORDER_ITEMS_MUTATION,
+      variables: { orderId, requestIds },
     });
     const affected = d?.update_order_item_requests?.affected_rows ?? 0;
     return { success: true, affected_rows: typeof affected === 'number' ? affected : 0 };
