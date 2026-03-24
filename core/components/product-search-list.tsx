@@ -10,16 +10,16 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { ThemedText } from '@/core/components/themed-text';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { formatPrice } from '@/core/services/format';
-import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
+import { getAvailableStock } from '@/core/types/product';
 
 /** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
 function compareProductsByNameThenSize(a: Product, b: Product): number {
@@ -45,12 +45,15 @@ interface Props {
   renderItem?: (item: Product) => React.ReactNode;
 }
 
+/** Screens wider than this (in dp/pt) get a 2-column grid; phones stay single-column. */
+const TWO_COLUMN_BREAKPOINT = 500;
+
 export function ProductSearchList({ companyId, onSelectProduct, showQuantity, renderItem: customRenderItem }: Props) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
-  const numColumns = width >= 768 ? 2 : 1;
+  const { width: screenWidth } = useWindowDimensions();
+  const numColumns = screenWidth >= TWO_COLUMN_BREAKPOINT ? 2 : 1;
   const { useMockData } = useDataSource();
   const {
     getCachedProducts,
@@ -136,7 +139,6 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
         style={({ pressed }) => [
           styles.card,
           { backgroundColor: colors.background, borderColor: colors.icon + '30' },
-          numColumns > 1 && styles.cardMultiCol,
           pressed && onSelectProduct && styles.cardPressed,
         ]}
       >
@@ -169,20 +171,19 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
         </View>
       </Pressable>
     ),
-    [colors, onSelectProduct, showQuantity, numColumns],
+    [colors, onSelectProduct, showQuantity],
   );
 
   const renderItem = useCallback(
     ({ item }: { item: Product }): React.ReactElement | null => {
-      // Invisible spacer to keep the last odd cell from stretching full width
-      if ((item as any).__spacer) return <View style={styles.cardMultiCol} />;
-      if (customRenderItem) {
-        const node = customRenderItem(item) as React.ReactElement;
-        if (!node) return defaultRenderItem({ item });
-        // Wrap in flex container so custom cells fill column width equally
-        return numColumns > 1 ? <View style={styles.cardMultiCol}>{node}</View> : node;
+      const content = customRenderItem
+        ? ((customRenderItem(item) as React.ReactElement) ?? defaultRenderItem({ item }))
+        : defaultRenderItem({ item });
+      // In 2-column mode wrap in flex:1 so each item fills its column
+      if (numColumns > 1) {
+        return <View style={styles.columnItem}>{content}</View>;
       }
-      return defaultRenderItem({ item });
+      return content;
     },
     [customRenderItem, defaultRenderItem, numColumns],
   );
@@ -235,15 +236,13 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
       ) : (
         <>
           <FlatList
-            key={numColumns}
-            data={numColumns > 1 && displayProducts.length % 2 !== 0
-              ? [...displayProducts, { __spacer: true } as any]
-              : displayProducts}
-            keyExtractor={(item, index) => (item as any).__spacer ? `__spacer_${index}` : item.article_code}
-            numColumns={numColumns}
+            key={`list-${numColumns}`}
+            data={displayProducts}
+            keyExtractor={(item) => item.article_code}
             renderItem={renderItem}
-            contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
+            numColumns={numColumns}
             columnWrapperStyle={numColumns > 1 ? styles.columnWrapper : undefined}
+            contentContainerStyle={[styles.list, { paddingBottom: 24 + insets.bottom }]}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             onEndReached={showingBackend ? loadMore : undefined}
             onEndReachedThreshold={0.4}
@@ -284,7 +283,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  cardMultiCol: { flex: 1 },
   cardPressed: { opacity: 0.7 },
   cardBody: { flex: 1, gap: 2 },
   productName: { fontSize: 15 },
@@ -303,6 +301,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 10,
   },
-  columnWrapper: { gap: 10 },
   footer: { paddingVertical: 16 },
+  /** Spacing between the two columns in grid mode */
+  columnWrapper: { gap: 10 },
+  /** Each item fills its column in 2-column grid mode */
+  columnItem: { flex: 1 },
 });
