@@ -8,6 +8,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import BluetoothStateManager from 'react-native-bluetooth-state-manager';
 import { Platform, PermissionsAndroid } from 'react-native';
 
 const STORAGE_KEY = '@fabriq_selected_printer';
@@ -49,6 +50,21 @@ export async function setSavedPrinter(device: PrinterDevice | null): Promise<voi
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(device));
   } else {
     await AsyncStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+/**
+ * One-shot read: is the device Bluetooth adapter on (native only).
+ * Call only when `isPrintSupported`; web build uses the `.web` stub.
+ */
+export async function isBluetoothEnabled(): Promise<boolean> {
+  if (!isPrintSupported) return false;
+  try {
+    const state = await BluetoothStateManager.getState();
+    return state === 'PoweredOn';
+  } catch {
+    // If native module isn't linked yet, don't block printing flows.
+    return true;
   }
 }
 
@@ -102,10 +118,23 @@ export async function getDeviceList(): Promise<PrinterDevice[]> {
   }
 }
 
-/** Connect to a printer by its inner_mac_address. */
+/**
+ * Connect to a printer by its inner_mac_address.
+ * Always tears down any existing connection and re-inits the BLE module first
+ * so we never send data over a stale handle (e.g. after the user forgets &
+ * re-pairs the device in OS Bluetooth settings).
+ */
 export async function connect(device: PrinterDevice): Promise<void> {
   const BLE = await getBLEPrinter();
   if (!BLE) throw new Error('Printing is not supported on this device');
+
+  // Tear down any previous connection to avoid stale handles
+  try { await BLE.disconnectPrinter?.(); } catch { /* ignore */ }
+
+  // Re-init to clear internal native module state
+  await BLE.init();
+
+  // Now connect fresh
   await BLE.connectPrinter(device.inner_mac_address);
 }
 
@@ -139,7 +168,7 @@ export async function connectAndPrint(
   receiptText: string,
   savedDevice: PrinterDevice
 ): Promise<void> {
-  await init();
+  // connect() already handles disconnect + re-init internally
   await connect(savedDevice);
   await printReceipt(receiptText);
 }

@@ -56,7 +56,6 @@ const SESSION_KEY = DEFAULT_SESSION_KEY;
 class AppSessionStorage implements SessionStorageBackend {
   private cache: Session | null = null;
   readonly hydrationPromise: Promise<void>;
-  private writeGen = 0;
   private pendingWrite: Promise<void> = Promise.resolve();
 
   constructor() {
@@ -124,18 +123,15 @@ class AppSessionStorage implements SessionStorageBackend {
       return;
     }
 
-    const gen = ++this.writeGen;
+    // Chain writes sequentially so they hit disk in order (prevents an older
+    // token from overwriting a newer one).  Every call writes — no skipping.
     this.pendingWrite = this.pendingWrite
-      .then(() => {
-        if (gen !== this.writeGen) return;
-        return AsyncStorage.setItem(SESSION_KEY, raw);
-      })
+      .then(() => AsyncStorage.setItem(SESSION_KEY, raw))
       .catch(() => {});
   }
 
   remove(): void {
     this.cache = null;
-    ++this.writeGen;
     if (Platform.OS === 'web') {
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -263,11 +259,10 @@ const auth: AuthProvider = {
   },
 
   async getSession() {
+    // Return the cached session from AsyncStorage without forcing a refresh.
+    // The NHost SDK's per-request middleware (sessionRefreshMiddleware) will
+    // transparently refresh the access token before the first API call.
     const client = await nhost();
-    try {
-      const refreshed = await client.refreshSession(0);
-      if (refreshed) return toAppSession(refreshed);
-    } catch { /* network error — fall through to cached session */ }
     const cached = client.getUserSession();
     return toAppSession(cached);
   },

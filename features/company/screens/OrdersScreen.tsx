@@ -80,6 +80,29 @@ function paymentLabelForOrder(order: Pick<OrderWithItems, 'payment_type' | 'paym
   return Strings.company[key];
 }
 
+/** One comma-separated line for checkout `customer_details` JSON (list + modal). */
+function formatCustomerDetailsLine(details: unknown): string | null {
+  if (details == null || typeof details !== 'object' || Array.isArray(details)) return null;
+  const o = details as Record<string, unknown>;
+  const take = (keys: string[]) => {
+    for (const key of keys) {
+      const v = o[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return null;
+  };
+  const parts: string[] = [];
+  const name = take(['student_name', 'name']);
+  const cls = take(['student_class', 'class']);
+  const parent = take(['parent_name']);
+  const phone = take(['parent_phone', 'phone']);
+  if (name) parts.push(name);
+  if (cls) parts.push(cls);
+  if (parent) parts.push(parent);
+  if (phone) parts.push(phone);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 function toDateLabel(dateStr: string): string {
   const date = new Date(dateStr);
   const today = new Date();
@@ -520,6 +543,8 @@ export default function OrdersScreen() {
       const s = STATUS_STYLE[item.status];
       const showRefundAmount = filter === 'refund' && item.refund_amount > 0;
       const isNegative = item.total < 0;
+      const customerLine = formatCustomerDetailsLine(item.customer_details);
+      const noteText = item.notes?.trim() ?? '';
       return (
         <Pressable
           onPress={() => handleOpenOrder(item)}
@@ -536,6 +561,14 @@ export default function OrdersScreen() {
               </ThemedText>
             </View>
           </View>
+          {customerLine ? (
+            <ThemedText style={[styles.cardCustomerLine, { color: colors.text }]} numberOfLines={2}>
+              <ThemedText style={[styles.cardLinePrefix, { color: colors.text }]}>
+                {Strings.company.orderListBuyerDetailsPrefix}
+              </ThemedText>
+              {customerLine}
+            </ThemedText>
+          ) : null}
           <View style={styles.cardBottom}>
             <View style={styles.cardBottomLeft}>
               <ThemedText style={{ color: colors.icon, fontSize: 13 }}>
@@ -558,6 +591,14 @@ export default function OrdersScreen() {
               </ThemedText>
             )}
           </View>
+          {noteText ? (
+            <ThemedText style={[styles.cardNote, { color: colors.icon }]} numberOfLines={4}>
+              <ThemedText style={[styles.cardLinePrefix, { color: colors.icon }]}>
+                {Strings.company.orderListCommentPrefix}
+              </ThemedText>
+              {noteText}
+            </ThemedText>
+          ) : null}
         </Pressable>
       );
     },
@@ -804,6 +845,26 @@ export default function OrdersScreen() {
                   {formatPrice(selectedOrder.refund_amount, selectedOrder.currency)}
                 </ThemedText>
               )}
+              {formatCustomerDetailsLine(selectedOrder.customer_details) ? (
+                <View style={styles.detailBlock}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>
+                    {Strings.company.checkoutBuyerDetailsTitle}
+                  </ThemedText>
+                  <ThemedText style={[styles.detailValueMultiline, { color: colors.text }]}>
+                    {formatCustomerDetailsLine(selectedOrder.customer_details)}
+                  </ThemedText>
+                </View>
+              ) : null}
+              {selectedOrder.notes?.trim() ? (
+                <View style={styles.detailBlock}>
+                  <ThemedText style={[styles.detailLabel, { color: colors.icon }]}>
+                    {Strings.company.checkoutOrderNotesLabel}
+                  </ThemedText>
+                  <ThemedText style={[styles.detailValueMultiline, { color: colors.text }]}>
+                    {selectedOrder.notes.trim()}
+                  </ThemedText>
+                </View>
+              ) : null}
               <View style={[styles.detailDivider, { backgroundColor: colors.icon + '20' }]} />
 
               {loadingItems ? (
@@ -1126,6 +1187,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  cardCustomerLine: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  cardLinePrefix: {
+    fontWeight: '600',
+  },
+  cardNote: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
@@ -1147,6 +1220,9 @@ const styles = StyleSheet.create({
   modalScroll: { flex: 1 },
   modalContent: { padding: 16, paddingBottom: 24 },
   detailRow: { marginBottom: 8, fontSize: 14 },
+  detailBlock: { marginBottom: 10 },
+  detailLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  detailValueMultiline: { fontSize: 14, lineHeight: 20 },
   detailDivider: { height: 1, marginVertical: 12 },
   detailItemRow: {
     flexDirection: 'row',

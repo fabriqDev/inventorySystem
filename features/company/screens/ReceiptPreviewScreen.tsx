@@ -1,5 +1,5 @@
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -19,7 +19,9 @@ import { formatAmount, formatPrice } from '@/core/services/format';
 import {
   buildReceiptText,
   connectAndPrint,
+  disconnect,
   getSavedPrinter,
+  isBluetoothEnabled,
   isPrintSupported,
   setSavedPrinter as persistSavedPrinter,
   type PrinterDevice,
@@ -81,27 +83,46 @@ export default function ReceiptPreviewScreen() {
   const [savedPrinter, setSavedPrinterState] = useState<PrinterDevice | null>(null);
   const [showPrinterSelect, setShowPrinterSelect] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [bluetoothOff, setBluetoothOff] = useState(false);
+  /** When true, the modal was opened from a failed print — pass receiptText so it prints on select */
+  const [modalShouldPrint, setModalShouldPrint] = useState(false);
 
-  const refreshPrinter = useCallback(async () => {
+  const refreshPrinterFromStorage = useCallback(async () => {
     const saved = await getSavedPrinter();
     setSavedPrinterState(saved);
   }, []);
 
-  const openPrinterSelectModal = useCallback(async () => {
-    try {
-      await persistSavedPrinter(null);
-    } catch {
-      /* storage clear is best-effort */
+  const validateBluetoothAndPrinter = useCallback(async () => {
+    if (!isPrintSupported) return;
+    const on = await isBluetoothEnabled();
+    if (!on) {
+      try {
+        await persistSavedPrinter(null);
+      } catch {
+        /* ignore */
+      }
+      setSavedPrinterState(null);
+      setBluetoothOff(true);
+      return;
     }
-    setSavedPrinterState(null);
-    setShowPrinterSelect(true);
-  }, []);
+    setBluetoothOff(false);
+    await refreshPrinterFromStorage();
+  }, [refreshPrinterFromStorage]);
 
-  useEffect(() => {
-    if (isPrintSupported) {
-      refreshPrinter();
+  useFocusEffect(
+    useCallback(() => {
+      void validateBluetoothAndPrinter();
+    }, [validateBluetoothAndPrinter]),
+  );
+
+  const openPrinterSelectModal = useCallback(() => {
+    if (bluetoothOff) {
+      toast.show({ type: 'info', message: Strings.company.receiptBluetoothOff });
+      return;
     }
-  }, [refreshPrinter]);
+    setModalShouldPrint(false);
+    setShowPrinterSelect(true);
+  }, [bluetoothOff]);
 
   // Receipt always uses server order id (passed from checkout after successful order).
   const serverOrderId = orderId;
@@ -116,7 +137,14 @@ export default function ReceiptPreviewScreen() {
   };
 
   const receiptText = buildReceiptText(receiptData);
-  const canPrint = isPrintSupported && savedPrinter != null;
+  const canPrint = isPrintSupported && !bluetoothOff && savedPrinter != null;
+
+  const printFooterLabel = useMemo(() => {
+    if (!isPrintSupported) return '';
+    if (bluetoothOff) return Strings.company.receiptBluetoothOff;
+    if (!savedPrinter) return Strings.company.receiptChoosePrinter;
+    return Strings.common.print;
+  }, [bluetoothOff, savedPrinter]);
 
   const handlePrint = useCallback(async () => {
     if (!canPrint || !savedPrinter) return;
@@ -126,11 +154,23 @@ export default function ReceiptPreviewScreen() {
       toast.show({ type: 'success', message: Strings.company.receiptSentToPrinter });
     } catch {
       toast.show({ type: 'error', message: Strings.company.printFailed });
-      void openPrinterSelectModal();
+      try {
+        await disconnect();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await persistSavedPrinter(null);
+      } catch {
+        /* ignore */
+      }
+      setSavedPrinterState(null);
+      setModalShouldPrint(true);
+      setShowPrinterSelect(true);
     } finally {
       setPrinting(false);
     }
-  }, [canPrint, savedPrinter, receiptText, openPrinterSelectModal]);
+  }, [canPrint, savedPrinter, receiptText]);
 
   const companyId = params.id ?? '';
 
@@ -144,9 +184,12 @@ export default function ReceiptPreviewScreen() {
   }, [companyId, params.afterDone, router]);
 
   const handlePrinterConnected = useCallback(() => {
-    refreshPrinter();
+    // Printer connected successfully — BT is clearly on
+    setBluetoothOff(false);
+    setModalShouldPrint(false);
+    void refreshPrinterFromStorage();
     setShowPrinterSelect(false);
-  }, [refreshPrinter]);
+  }, [refreshPrinterFromStorage]);
 
   return (
     <ThemedView style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom + 24 }]}>
@@ -155,13 +198,9 @@ export default function ReceiptPreviewScreen() {
           title: Strings.company.receipt,
           headerRight: isPrintSupported
             ? () => (
-                <Pressable
-                  onPress={() => void openPrinterSelectModal()}
-                  style={styles.headerBtn}
-                  hitSlop={8}
-                >
-                  <IconSymbol name="printer.fill" size={22} color={colors.tint} />
-                  <ThemedText style={[styles.headerBtnLabel, { color: colors.tint }]}>
+                <Pressable onPress={openPrinterSelectModal} style={styles.headerBtn} hitSlop={8}>
+                  <IconSymbol name="printer.fill" size={20} color={colors.tint} />
+                  <ThemedText style={[styles.headerBtnLabel, { color: colors.tint }]} numberOfLines={1}>
                     {Strings.common.selectPrinter}
                   </ThemedText>
                 </Pressable>
@@ -175,6 +214,13 @@ export default function ReceiptPreviewScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {isPrintSupported && bluetoothOff ? (
+          <View style={[styles.btBanner, { backgroundColor: '#FFF3E0', borderColor: '#E65100' + '55' }]}>
+            <ThemedText style={[styles.btBannerText, { color: '#E65100' }]}>
+              {Strings.company.receiptBluetoothOff}
+            </ThemedText>
+          </View>
+        ) : null}
         <View style={[styles.receiptCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
           <ThemedText type="subtitle" style={styles.sellerName}>
             {SELLER_NAME}
@@ -245,6 +291,11 @@ export default function ReceiptPreviewScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { borderTopColor: colors.icon + '20' }]}>
+        {isPrintSupported && savedPrinter && !bluetoothOff ? (
+          <ThemedText style={[styles.printerReadyCaption, { color: colors.icon }]}>
+            {Strings.company.receiptPrinterReady}
+          </ThemedText>
+        ) : null}
         {isPrintSupported && (
           <Pressable
             onPress={handlePrint}
@@ -264,8 +315,9 @@ export default function ReceiptPreviewScreen() {
                 styles.printBtnText,
                 { color: canPrint ? '#fff' : colors.icon },
               ]}
+              numberOfLines={2}
             >
-              {canPrint ? Strings.common.print : Strings.common.noPrinterConnected}
+              {printFooterLabel}
             </ThemedText>
           </Pressable>
         )}
@@ -279,8 +331,8 @@ export default function ReceiptPreviewScreen() {
 
       <PrinterSelectModal
         visible={showPrinterSelect}
-        onClose={() => setShowPrinterSelect(false)}
-        pendingReceiptText={null}
+        onClose={() => { setShowPrinterSelect(false); setModalShouldPrint(false); }}
+        pendingReceiptText={modalShouldPrint ? receiptText : null}
         onDone={handlePrinterConnected}
       />
     </ThemedView>
@@ -296,11 +348,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
+    flexShrink: 1,
   },
   headerBtnLabel: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  btBanner: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  btBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  printerReadyCaption: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 4,
   },
   scroll: {
     flex: 1,

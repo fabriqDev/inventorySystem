@@ -16,6 +16,7 @@ export {
   getDeviceList,
   getSavedPrinter,
   init,
+  isBluetoothEnabled,
   isPrintSupported,
   printReceipt,
   setSavedPrinter,

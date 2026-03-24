@@ -60,3 +60,8 @@ export async function connectAndPrint(
 ): Promise<void> {
   throw new Error('Printing is not supported on this device');
 }
+
+/** Web: thermal printing unsupported; callers should gate with `isPrintSupported`. */
+export async function isBluetoothEnabled(): Promise<boolean> {
+  return false;
+}

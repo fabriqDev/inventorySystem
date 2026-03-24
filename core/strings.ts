@@ -61,6 +61,10 @@ export const Strings = {
     orders: 'Orders',
     orderDetails: 'Order details',
     orderDetailsPrintNeedItems: 'Wait for items to load, or try opening the order again.',
+    /** Sales order list cell when `customer_details` is present. */
+    orderListBuyerDetailsPrefix: 'Buyer Details: ',
+    /** Sales order list cell when `notes` is present. */
+    orderListCommentPrefix: 'Comment: ',
     totalOrders: 'Total Orders',
     all: 'All',
     success: 'Success',
@@ -131,6 +135,25 @@ export const Strings = {
     receipt: 'Receipt',
     receiptSentToPrinter: 'Receipt sent to printer.',
     printFailed: 'Print failed. Try connecting again.',
+    /** Receipt screen: Bluetooth adapter off (banner + toast). */
+    receiptBluetoothOff: 'Turn on Bluetooth to print receipts.',
+    /** Receipt footer when no printer chosen yet (BT on). */
+    receiptChoosePrinter: 'Choose printer',
+    /** After selecting a printer in the modal (toast / optional caption). */
+    receiptPrinterReady: 'Printer ready',
+    receiptResetPrinter: 'Reset',
+    /** Printer modal: list explanation (this scan may include paired devices). */
+    receiptPrinterScanListHint:
+      'These printers are from this scan (may include paired devices). Tap one to connect for this receipt.',
+    receiptPrinterModalHint:
+      'Turn on your receipt printer and ensure Bluetooth is enabled on this device.',
+    receiptScanningPrinters: 'Scanning for printers…',
+    receiptPrinterModalNoDevices: 'No printers found',
+    receiptPrinterModalEmptyHint:
+      'Turn on your receipt printer, put it in pairing mode if needed, then tap Scan again.',
+    receiptScanAgain: 'Scan again',
+    receiptPrinterConnectOrPrintFailed: 'Could not connect or print. Try again.',
+    receiptPrinterScanFailed: 'Could not scan for printers. Check Bluetooth permissions.',
     sellerName: 'Fabriq',
     orderCouldNotBeCompleted: 'Order could not be completed. Please try again.',
     pleaseSignInToPlaceOrder: 'Please sign in to place an order.',

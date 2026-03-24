@@ -14,12 +14,26 @@ import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import {
   connect,
   getDeviceList,
+  isBluetoothEnabled,
   isPrintSupported,
   printReceipt,
   setSavedPrinter,
   type PrinterDevice,
 } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
+import { Strings } from '@/core/strings';
+
+function dedupeDevicesByMac(list: PrinterDevice[]): PrinterDevice[] {
+  const seen = new Set<string>();
+  const out: PrinterDevice[] = [];
+  for (const d of list) {
+    const mac = d?.inner_mac_address?.trim() ?? '';
+    if (!mac || seen.has(mac)) continue;
+    seen.add(mac);
+    out.push(d);
+  }
+  return out;
+}
 
 export interface PrinterSelectModalProps {
   visible: boolean;
@@ -46,22 +60,33 @@ export function PrinterSelectModal({
   const [devices, setDevices] = useState<PrinterDevice[]>([]);
   const [loading, setLoading] = useState(false);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [bluetoothOff, setBluetoothOff] = useState(false);
   const mountedRef = useRef(true);
 
   const scan = useCallback(async () => {
     if (!isPrintSupported) return;
     setLoading(true);
     setDevices([]);
+    setBluetoothOff(false);
     try {
+      // Check Bluetooth state before scanning
+      const btOn = await isBluetoothEnabled();
+      if (!btOn) {
+        if (mountedRef.current) {
+          setBluetoothOff(true);
+          setLoading(false);
+        }
+        return;
+      }
       const list = await getDeviceList();
       if (mountedRef.current && Array.isArray(list)) {
-        setDevices(list);
+        setDevices(dedupeDevicesByMac(list));
       }
-    } catch (e) {
+    } catch {
       if (mountedRef.current) {
         toast.show({
           type: 'error',
-          message: 'Could not scan for printers. Check Bluetooth permissions.',
+          message: Strings.company.receiptPrinterScanFailed,
         });
       }
     } finally {
@@ -95,16 +120,16 @@ export function PrinterSelectModal({
         await setSavedPrinter(device);
         if (pendingReceiptText) {
           await printReceipt(pendingReceiptText);
-          toast.show({ type: 'success', message: 'Receipt sent to printer.' });
+          toast.show({ type: 'success', message: Strings.company.receiptSentToPrinter });
         } else {
-          toast.show({ type: 'success', message: 'Printer set as default.' });
+          toast.show({ type: 'success', message: Strings.company.receiptPrinterReady });
         }
         onDone?.(device);
         onClose();
-      } catch (e) {
+      } catch {
         toast.show({
           type: 'error',
-          message: 'Could not connect or print. Try again.',
+          message: Strings.company.receiptPrinterConnectOrPrintFailed,
         });
       } finally {
         setConnectingId(null);
@@ -131,33 +156,47 @@ export function PrinterSelectModal({
           onPress={(e) => e.stopPropagation()}
         >
           <ThemedText type="subtitle" style={styles.title}>
-            Select printer
+            {Strings.common.selectPrinter}
           </ThemedText>
           <ThemedText style={[styles.hint, { color: colors.icon }]}>
-            Turn on your receipt printer and ensure Bluetooth is enabled.
+            {Strings.company.receiptPrinterModalHint}
           </ThemedText>
 
           {loading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={colors.tint} />
               <ThemedText style={[styles.scanningLabel, { color: colors.icon }]}>
-                Scanning for printers…
+                {Strings.company.receiptScanningPrinters}
               </ThemedText>
             </View>
-          ) : safeDevices.length === 0 ? (
+          ) : bluetoothOff ? (
             <View style={styles.emptyState}>
-              <ThemedText style={[styles.emptyTitle, { color: colors.text }]}>
-                No printers found
+              <ThemedText style={[styles.emptyTitle, { color: '#E65100' }]}>
+                {Strings.company.receiptBluetoothOff}
               </ThemedText>
               <ThemedText style={[styles.emptyHint, { color: colors.icon }]}>
-                Turn on your receipt printer (e.g. DC3M), put it in pairing mode, and ensure
-                Bluetooth is enabled on this device.
+                {'Please turn on Bluetooth from your device settings, then come back and try again.'}
               </ThemedText>
               <Pressable
                 onPress={scan}
                 style={[styles.scanAgainBtn, { backgroundColor: colors.tint }]}
               >
-                <ThemedText style={styles.scanAgainBtnText}>Scan again</ThemedText>
+                <ThemedText style={styles.scanAgainBtnText}>{'Retry'}</ThemedText>
+              </Pressable>
+            </View>
+          ) : safeDevices.length === 0 ? (
+            <View style={styles.emptyState}>
+              <ThemedText style={[styles.emptyTitle, { color: colors.text }]}>
+                {Strings.company.receiptPrinterModalNoDevices}
+              </ThemedText>
+              <ThemedText style={[styles.emptyHint, { color: colors.icon }]}>
+                {Strings.company.receiptPrinterModalEmptyHint}
+              </ThemedText>
+              <Pressable
+                onPress={scan}
+                style={[styles.scanAgainBtn, { backgroundColor: colors.tint }]}
+              >
+                <ThemedText style={styles.scanAgainBtnText}>{Strings.company.receiptScanAgain}</ThemedText>
               </Pressable>
             </View>
           ) : (
@@ -168,14 +207,14 @@ export function PrinterSelectModal({
               keyboardShouldPersistTaps="handled"
             >
               <ThemedText style={[styles.listHint, { color: colors.icon }]}>
-                Tap a printer to connect and use as default.
+                {Strings.company.receiptPrinterScanListHint}
               </ThemedText>
               {safeDevices.map((d) => {
                 const mac = d?.inner_mac_address ?? '';
                 const isConnecting = connectingId === mac;
                 return (
                   <Pressable
-                    key={mac || String(Math.random())}
+                    key={mac}
                     onPress={() => handleSelect(d)}
                     disabled={isConnecting}
                     style={[
@@ -196,7 +235,7 @@ export function PrinterSelectModal({
                 onPress={scan}
                 style={[styles.scanAgainBtnOutlined, { borderColor: colors.icon + '40' }]}
               >
-                <ThemedText style={{ color: colors.tint }}>Scan again</ThemedText>
+                <ThemedText style={{ color: colors.tint }}>{Strings.company.receiptScanAgain}</ThemedText>
               </Pressable>
             </ScrollView>
           )}
@@ -205,7 +244,7 @@ export function PrinterSelectModal({
             onPress={onClose}
             style={[styles.cancelBtn, { borderColor: colors.icon + '40' }]}
           >
-            <ThemedText style={{ color: colors.text }}>Cancel</ThemedText>
+            <ThemedText style={{ color: colors.text }}>{Strings.common.cancel}</ThemedText>
           </Pressable>
         </Pressable>
       </Pressable>

@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/core/components/themed-text';
 import { Colors } from '@/core/constants/theme';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { formatPrice } from '@/core/services/format';
 import { Strings } from '@/core/strings';
 import { getAvailableStock } from '@/core/types/product';
 import type { Product } from '@/core/types/product';
@@ -39,7 +38,7 @@ export function InventoryProductCell({
     >
       <View style={styles.topRow}>
         <View style={styles.body}>
-          <ThemedText type="defaultSemiBold" numberOfLines={1} style={styles.productName}>
+          <ThemedText type="defaultSemiBold" numberOfLines={2} style={styles.productName}>
             {product.name}
           </ThemedText>
           {product.size?.trim() ? (
@@ -54,9 +53,6 @@ export function InventoryProductCell({
         <View style={styles.right}>
           <ThemedText style={[styles.availableLabel, { color: colors.icon }]}>
             {Strings.company.available}: {available}
-          </ThemedText>
-          <ThemedText style={[styles.price, { color: colors.tint }]}>
-            {formatPrice(product.price, product.currency)}
           </ThemedText>
         </View>
       </View>
@@ -79,15 +75,14 @@ const styles = StyleSheet.create({
   cellPressed: { opacity: 0.7 },
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
-  body: { flex: 1, gap: 2 },
-  productName: { fontSize: 15 },
+  body: { flex: 1, gap: 2, minWidth: 0 },
+  productName: { fontSize: 15, lineHeight: 20 },
   sizeLabel: { fontSize: 12 },
   sizeValue: { fontWeight: '600', fontSize: 12 },
   code: { fontSize: 12 },
   right: { alignItems: 'flex-end', marginLeft: 12, gap: 2 },
   availableLabel: { fontSize: 13 },
-  price: { fontSize: 13, fontWeight: '600' },
   lowStock: { fontSize: 12, fontWeight: '600' },
 });
