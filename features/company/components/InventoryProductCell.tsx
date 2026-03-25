@@ -15,7 +15,7 @@ interface InventoryProductCellProps {
   lowStockThreshold?: number;
 }
 
-/** Available = quantity - reserved. Shown on inventory list; shows low-stock warning when available < threshold. */
+/** Available = quantity − reserved. Out of stock → red row + “Not available”. Low stock → “Product stock low” when 0 < available < threshold. */
 export function InventoryProductCell({
   product,
   onPress,
@@ -25,14 +25,20 @@ export function InventoryProductCell({
   const colors = Colors[colorScheme ?? 'light'];
 
   const available = getAvailableStock(product);
-  const isLowStock = available < lowStockThreshold;
+  const outOfStock = available === 0;
+  const isLowStock = !outOfStock && available < lowStockThreshold;
 
   return (
     <Pressable
       onPress={() => onPress(product)}
       style={({ pressed }) => [
         styles.cell,
-        { backgroundColor: colors.background, borderColor: colors.icon + '30' },
+        outOfStock
+          ? {
+              backgroundColor: colors.outOfStockSurface,
+              borderColor: colors.outOfStockBorder,
+            }
+          : { backgroundColor: colors.background, borderColor: colors.icon + '30' },
         pressed && styles.cellPressed,
       ]}
     >
@@ -56,8 +62,13 @@ export function InventoryProductCell({
           </ThemedText>
         </View>
       </View>
+      {outOfStock && (
+        <ThemedText style={[styles.stockBanner, { color: '#C62828' }]}>
+          {Strings.company.productNotAvailable}
+        </ThemedText>
+      )}
       {isLowStock && (
-        <ThemedText style={[styles.lowStock, { color: '#C62828' }]}>
+        <ThemedText style={[styles.stockBanner, { color: '#C62828' }]}>
           {Strings.company.productStockLow}
         </ThemedText>
       )}
@@ -84,5 +95,5 @@ const styles = StyleSheet.create({
   code: { fontSize: 12 },
   right: { alignItems: 'flex-end', marginLeft: 12, gap: 2 },
   availableLabel: { fontSize: 13 },
-  lowStock: { fontSize: 12, fontWeight: '600' },
+  stockBanner: { fontSize: 12, fontWeight: '600' },
 });

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   useWindowDimensions,
@@ -10,16 +11,44 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { ThemedText } from '@/core/components/themed-text';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
 import { formatPrice } from '@/core/services/format';
-import { getAvailableStock } from '@/core/types/product';
-import type { Product } from '@/core/types/product';
+import { Strings } from '@/core/strings';
+import {
+  getAvailableStock,
+  UNIFORM_GROUP_TAB_ORDER,
+  UniformGroup,
+  type Product,
+  type UniformGroupValue,
+} from '@/core/types/product';
+
+type UniformGroupFilter = 'all' | UniformGroupValue;
+
+function uniformGroupFilterLabel(g: UniformGroupValue): string {
+  switch (g) {
+    case UniformGroup.TOP:
+      return Strings.company.uniformGroupTop;
+    case UniformGroup.BOTTOM:
+      return Strings.company.uniformGroupBottom;
+    case UniformGroup.ACCESSORY:
+      return Strings.company.uniformGroupAccessory;
+    case UniformGroup.OVERALLS:
+      return Strings.company.uniformGroupOveralls;
+    case UniformGroup.GENERIC:
+      return Strings.company.uniformGroupGeneric;
+  }
+}
+
+const UNIFORM_GROUP_FILTER_TABS: { value: UniformGroupFilter; label: string }[] = [
+  { value: 'all', label: Strings.company.all },
+  ...UNIFORM_GROUP_TAB_ORDER.map((g) => ({ value: g, label: uniformGroupFilterLabel(g) })),
+];
 
 /** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
 function compareProductsByNameThenSize(a: Product, b: Product): number {
@@ -63,6 +92,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
   } = useProductCache();
 
   const [search, setSearch] = useState('');
+  const [uniformGroupFilter, setUniformGroupFilter] = useState<UniformGroupFilter>('all');
   const [backendResults, setBackendResults] = useState<Product[] | null>(null);
   const [backendLoading, setBackendLoading] = useState(false);
   const [backendLoadingMore, setBackendLoadingMore] = useState(false);
@@ -74,16 +104,25 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
     return () => { mountedRef.current = false; };
   }, []);
 
+  useEffect(() => {
+    setUniformGroupFilter('all');
+  }, [companyId]);
+
   const localFiltered = useMemo(
     () => filterProducts(companyId, search),
     [companyId, filterProducts, search],
   );
 
   const rawDisplayProducts = backendResults !== null ? backendResults : localFiltered;
+  const groupFilteredProducts = useMemo(() => {
+    if (uniformGroupFilter === 'all') return rawDisplayProducts;
+    return rawDisplayProducts.filter((p) => p.uniform_group === uniformGroupFilter);
+  }, [rawDisplayProducts, uniformGroupFilter]);
+
   const displayProducts = useMemo(() => {
-    if (rawDisplayProducts.length <= 1) return rawDisplayProducts;
-    return [...rawDisplayProducts].sort(compareProductsByNameThenSize);
-  }, [rawDisplayProducts]);
+    if (groupFilteredProducts.length <= 1) return groupFilteredProducts;
+    return [...groupFilteredProducts].sort(compareProductsByNameThenSize);
+  }, [groupFilteredProducts]);
   const showingBackend = backendResults !== null;
   const showSearchBackendButton =
     search.trim().length > 0 && localFiltered.length === 0 && !showingBackend;
@@ -133,12 +172,19 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
   }, [showingBackend, backendHasMore, backendLoadingMore, backendPage, runBackendSearch]);
 
   const defaultRenderItem = useCallback(
-    ({ item }: { item: Product }) => (
+    ({ item }: { item: Product }) => {
+      const outOfStock = getAvailableStock(item) === 0;
+      return (
       <Pressable
         onPress={() => onSelectProduct?.(item)}
         style={({ pressed }) => [
           styles.card,
-          { backgroundColor: colors.background, borderColor: colors.icon + '30' },
+          outOfStock
+            ? {
+                backgroundColor: colors.outOfStockSurface,
+                borderColor: colors.outOfStockBorder,
+              }
+            : { backgroundColor: colors.background, borderColor: colors.icon + '30' },
           pressed && onSelectProduct && styles.cardPressed,
         ]}
       >
@@ -170,7 +216,8 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
           )}
         </View>
       </Pressable>
-    ),
+      );
+    },
     [colors, onSelectProduct, showQuantity],
   );
 
@@ -208,6 +255,40 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
           </Pressable>
         )}
       </View>
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        bounces={false}
+        contentContainerStyle={styles.filtersContent}
+        style={styles.filtersScroll}
+      >
+        {UNIFORM_GROUP_FILTER_TABS.map((tab, chipIndex) => {
+          const active = uniformGroupFilter === tab.value;
+          return (
+            <Pressable
+              key={tab.value}
+              onPress={() => setUniformGroupFilter(tab.value)}
+              style={({ pressed }) => [
+                styles.chip,
+                chipIndex < UNIFORM_GROUP_FILTER_TABS.length - 1 && styles.chipSpacing,
+                active
+                  ? { backgroundColor: colors.tint }
+                  : { backgroundColor: colors.icon + '12', borderWidth: 1, borderColor: colors.icon + '22' },
+                pressed && { opacity: 0.85 },
+              ]}
+            >
+              <ThemedText
+                numberOfLines={1}
+                includeFontPadding={false}
+                style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}
+              >
+                {tab.label}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       {cacheLoading(companyId) && !isCached(companyId) ? (
         <View style={styles.center}>
@@ -274,6 +355,29 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   searchInput: { flex: 1, fontSize: 15, height: '100%' },
+  filtersScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    width: '100%',
+  },
+  filtersContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    paddingRight: 20,
+  },
+  chip: {
+    flexShrink: 0,
+    flexGrow: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chipSpacing: { marginRight: 8 },
+  chipText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
   list: { paddingHorizontal: 16, paddingBottom: 24 },
   separator: { height: 10 },
   card: {

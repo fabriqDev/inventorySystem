@@ -16,6 +16,9 @@ export const Colors = {
     icon: '#687076',
     tabIconDefault: '#687076',
     tabIconSelected: tintColorLight,
+    /** Soft tint for zero-stock product rows (readable body text on top). */
+    outOfStockSurface: '#FFEBEE',
+    outOfStockBorder: '#FFCDD2',
   },
   dark: {
     text: '#ECEDEE',
@@ -24,6 +27,8 @@ export const Colors = {
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: tintColorDark,
+    outOfStockSurface: 'rgba(239, 83, 80, 0.18)',
+    outOfStockBorder: 'rgba(239, 83, 80, 0.42)',
   },
 };
 

@@ -13,7 +13,7 @@ import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/typ
 import { toast } from '@/core/services/toast';
 import { PaymentProvider, PaymentType } from '@/core/types/order';
 import type { OrderWithItems } from '@/core/types/order';
-import type { Product } from '@/core/types/product';
+import { parseUniformGroup, type Product } from '@/core/types/product';
 import type {
   RequestedOrderLine,
   RequestedOrderListRow,
@@ -387,6 +387,7 @@ const PRODUCT_BY_BARCODE_QUERY = `
         description
         color
         uniform_type
+        uniform_group
         year
       }
     }
@@ -878,6 +879,7 @@ function mapProductInventoryRow(row: any): Product {
     currency: CURRENCY_DEFAULT,
     quantity: row.stock ?? 0,
     size: product.size ?? undefined,
+    uniform_group: parseUniformGroup(product.uniform_group),
     discount_percentage: row.discount_percentage ?? 0,
     tax_percentage: row.tax_percentage ?? 0,
     reserved,

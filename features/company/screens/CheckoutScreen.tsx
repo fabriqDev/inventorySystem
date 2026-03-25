@@ -806,7 +806,8 @@ export default function CheckoutScreen() {
     submitOrder(CheckoutButton.CASH);
   }, [submitOrder, buyerClassMissing]);
 
-  const isRefund = total < 0;
+  const isRefund = total <= 0;
+  const shouldCollectPayment = total > 0;
 
   if (items.length === 0) {
     return (
@@ -993,7 +994,7 @@ export default function CheckoutScreen() {
         )}
 
         <View style={styles.actions}>
-          {isRefund ? (
+          {!shouldCollectPayment ? (
             <Pressable
               onPress={handleCompleteOrder}
               disabled={submitting || blockPaymentActions}

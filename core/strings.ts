@@ -74,6 +74,11 @@ export const Strings = {
     cashTab: 'Cash',
     onlineTab: 'Online',
     noOrdersFound: 'No orders found',
+    uniformGroupTop: 'Top',
+    uniformGroupBottom: 'Bottom',
+    uniformGroupAccessory: 'Accessory',
+    uniformGroupOveralls: 'Overalls',
+    uniformGroupGeneric: 'Generic',
     today: 'Today',
     yesterday: 'Yesterday',
     totalSales: 'Total Sales',
@@ -100,6 +105,9 @@ export const Strings = {
     loadingMore: 'Loading more…',
     refunds: 'Refunds',
     available: 'Available',
+    /** Inventory cell when available qty is 0. */
+    productNotAvailable: 'Not available',
+    /** Inventory cell when 0 < available < low-stock threshold. */
     productStockLow: 'Product stock low',
     cartEmpty: 'Cart is empty. Tap Add item or Return item to scan or search.',
     item: 'item',

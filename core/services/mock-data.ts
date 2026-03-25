@@ -5,7 +5,7 @@ import type { CreateOrderInput, CreateOrderResult, CreateTransferInput } from '@
 import type { CompanyWithRole } from '@/core/types/company';
 import type { OrderWithItems } from '@/core/types/order';
 import { DEFAULT_PAYMENT_METHOD_VALUE, fromPaymentMethodValue } from '@/core/types/order';
-import type { Product } from '@/core/types/product';
+import { parseUniformGroup, type Product } from '@/core/types/product';
 import type { InventoryTransfer, TransferItem } from '@/core/types/transfer';
 
 const MIN_LATENCY_MS = 300;
@@ -102,6 +102,7 @@ export async function getMockProducts(companyId: string): Promise<Product[]> {
     discount_percentage: p.discount_percentage ?? 0,
     tax_percentage: p.tax_percentage ?? 5,
     reserved: p.reserved ?? 0,
+    uniform_group: parseUniformGroup(p.uniform_group),
   }));
   return simulateNetwork(products);
 }
