@@ -130,11 +130,12 @@ export const Strings = {
     checkoutOrderNotesLabel: 'Order notes',
     checkoutOrderNotesPlaceholder: 'Add a note for this order (optional)',
     checkoutBuyerDetailsTitle: 'Buyer details',
-    checkoutBuyerStudentName: 'Student name',
+    checkoutBuyerStudentName: 'Student name *',
     checkoutBuyerStudentClass: 'Student class *',
     checkoutBuyerParentName: 'Parent name',
     checkoutBuyerParentPhone: 'Parent number',
-    checkoutStudentClassRequiredToast: 'Enter student class before taking payment.',
+    /** When buyer details block is shown: name + class required before payment. */
+    checkoutStudentClassRequiredToast: 'Enter student name and class before taking payment.',
     /** Checkout footer: total unit count (sum of quantities). */
     checkoutTotalItemsEquals: 'Total Items =',
     checkoutTotalAmountEquals: 'Total Amount =',

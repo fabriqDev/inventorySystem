@@ -321,12 +321,7 @@ export default function CheckoutScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id: companyId, childName, childClass, parentPhone } = useLocalSearchParams<{
-    id: string;
-    childName?: string;
-    childClass?: string;
-    parentPhone?: string;
-  }>();
+  const { id: companyId } = useLocalSearchParams<{ id: string }>();
   const { session } = useAuth();
   const { items, total, currency, itemCount, clearCart } = useCart();
   const { selectedCompany } = useCompany();
@@ -384,18 +379,23 @@ export default function CheckoutScreen() {
   const saleRefundItems = useMemo(() => items.filter((i) => i.transactionType !== 'request'), [items]);
   const checkoutRequestItems = useMemo(() => items.filter((i) => i.transactionType === 'request'), [items]);
 
-  const buyerClassMissing = askBuyerDetails && buyerStudentClass.trim().length === 0;
-  const blockPaymentActions = hasStockError || buyerClassMissing;
+  /** Buyer block: company flag and/or cart has request lines (details collected once at checkout). */
+  const captureBuyerDetails = askBuyerDetails || checkoutRequestItems.length > 0;
+
+  const buyerDetailsIncomplete =
+    captureBuyerDetails &&
+    (buyerStudentName.trim().length === 0 || buyerStudentClass.trim().length === 0);
+  const blockPaymentActions = hasStockError || buyerDetailsIncomplete;
 
   const buildBuyerDetailsPayload = useCallback((): OrderCheckoutBuyerDetails | undefined => {
-    if (!askBuyerDetails) return undefined;
+    if (!captureBuyerDetails) return undefined;
     return {
       student_name: buyerStudentName.trim() || undefined,
       student_class: buyerStudentClass.trim() || undefined,
       parent_name: buyerParentName.trim() || undefined,
       parent_phone: buyerParentPhone.trim() || undefined,
     };
-  }, [askBuyerDetails, buyerStudentName, buyerStudentClass, buyerParentName, buyerParentPhone]);
+  }, [captureBuyerDetails, buyerStudentName, buyerStudentClass, buyerParentName, buyerParentPhone]);
 
   useEffect(() => {
     if (items.length === 0 && !navigatingToReceiptRef.current) {
@@ -446,11 +446,11 @@ export default function CheckoutScreen() {
       const payment = getOrderPaymentForCheckout(button, total, splitAmounts);
       try {
         const requestDetailsForOrder =
-          childName?.trim()
+          checkoutRequestItems.length > 0
             ? {
-                name: childName.trim(),
-                class: (childClass ?? '').trim(),
-                phone: parentPhone?.trim() || undefined,
+                name: buyerStudentName.trim(),
+                class: buyerStudentClass.trim(),
+                phone: buyerParentPhone.trim() || undefined,
               }
             : undefined;
 
@@ -501,21 +501,22 @@ export default function CheckoutScreen() {
       useMockData,
       navigateToReceipt,
       adjustStock,
-      childName,
-      childClass,
-      parentPhone,
+      checkoutRequestItems.length,
+      buyerStudentName,
+      buyerStudentClass,
+      buyerParentPhone,
       orderNotes,
       buildBuyerDetailsPayload,
     ],
   );
 
   const handleCollectPayment = useCallback(() => {
-    if (buyerClassMissing) {
+    if (buyerDetailsIncomplete) {
       toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
       return;
     }
     setShowPaymentChoice(true);
-  }, [buyerClassMissing]);
+  }, [buyerDetailsIncomplete]);
 
   const runVerification = useCallback(async (ctx: NonNullable<typeof razorpayContextRef.current>) => {
     if (!ctx.sdkResult) return;
@@ -597,7 +598,7 @@ export default function CheckoutScreen() {
   }, [selectedCompany, total, currency, colors.tint, runVerification]);
 
   const handleRazorpayPayment = useCallback(async () => {
-    if (buyerClassMissing) {
+    if (buyerDetailsIncomplete) {
       toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
       return;
     }
@@ -620,11 +621,11 @@ export default function CheckoutScreen() {
 
     try {
       const requestDetailsForOrder =
-        childName?.trim()
+        checkoutRequestItems.length > 0
           ? {
-              name: childName.trim(),
-              class: (childClass ?? '').trim(),
-              phone: parentPhone?.trim() || undefined,
+              name: buyerStudentName.trim(),
+              class: buyerStudentClass.trim(),
+              phone: buyerParentPhone.trim() || undefined,
             }
           : undefined;
 
@@ -686,7 +687,7 @@ export default function CheckoutScreen() {
       setSubmitting(false);
     }
   }, [
-    buyerClassMissing,
+    buyerDetailsIncomplete,
     companyId,
     userId,
     items,
@@ -695,9 +696,10 @@ export default function CheckoutScreen() {
     selectedCompany,
     useMockData,
     openRazorpaySDK,
-    childName,
-    childClass,
-    parentPhone,
+    checkoutRequestItems.length,
+    buyerStudentName,
+    buyerStudentClass,
+    buyerParentPhone,
     orderNotes,
     buildBuyerDetailsPayload,
   ]);
@@ -771,7 +773,7 @@ export default function CheckoutScreen() {
   }, [total]);
 
   const handleSplitConfirm = useCallback(() => {
-    if (buyerClassMissing) {
+    if (buyerDetailsIncomplete) {
       toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
       return;
     }
@@ -790,7 +792,7 @@ export default function CheckoutScreen() {
     setSplitCashInput('');
     setSplitOnlineInput('');
     submitOrder(CheckoutButton.SPLIT, { cash_share, online_share });
-  }, [splitCashInput, splitOnlineInput, total, currency, submitOrder, buyerClassMissing]);
+  }, [splitCashInput, splitOnlineInput, total, currency, submitOrder, buyerDetailsIncomplete]);
 
   /** Razorpay PG from bottom bar shortcut. */
   const handleRazorpayPG = useCallback(() => {
@@ -799,12 +801,12 @@ export default function CheckoutScreen() {
 
   /** For negative totals (refunds): complete with Cash (no payment choice popup). */
   const handleCompleteOrder = useCallback(() => {
-    if (buyerClassMissing) {
+    if (buyerDetailsIncomplete) {
       toast.show({ type: 'info', message: Strings.company.checkoutStudentClassRequiredToast });
       return;
     }
     submitOrder(CheckoutButton.CASH);
-  }, [submitOrder, buyerClassMissing]);
+  }, [submitOrder, buyerDetailsIncomplete]);
 
   const isRefund = total <= 0;
   const shouldCollectPayment = total > 0;
@@ -886,7 +888,7 @@ export default function CheckoutScreen() {
           ) : null}
         </View>
 
-        {askBuyerDetails ? (
+        {captureBuyerDetails ? (
           <View style={styles.checkoutFormBlock}>
             <ThemedText type="defaultSemiBold" style={{ color: colors.text, marginBottom: 8 }}>
               {Strings.company.checkoutBuyerDetailsTitle}
@@ -975,7 +977,7 @@ export default function CheckoutScreen() {
           </ThemedText>
         </View>
 
-        {buyerClassMissing && (
+        {buyerDetailsIncomplete && (
           <ThemedText style={styles.stockWarning}>
             {Strings.company.checkoutStudentClassRequiredToast}
           </ThemedText>

@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,7 +13,6 @@ import { AddReturnItemModal } from '@/core/components/add-return-item-modal';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
-import { OrderItemRequestField } from '@/core/types/requested-orders';
 import { Colors } from '@/core/constants/theme';
 import { useCart } from '@/core/context/cart-context';
 import { useLocalOrderDrafts } from '@/core/context/local-order-drafts-context';
@@ -32,13 +30,6 @@ import {
 } from '@/core/types/local-order-draft';
 
 const REQUEST_PURPLE = '#7B2FBE';
-
-/** UI placeholders aligned with `OrderItemRequestField` / `order_item_requests` columns. */
-const REQUEST_ITEM_FORM_PLACEHOLDER = {
-  [OrderItemRequestField.STUDENT_NAME]: Strings.company.requestItemStudentNameRequired,
-  [OrderItemRequestField.STUDENT_CLASS]: Strings.company.requestItemStudentClassRequired,
-  [OrderItemRequestField.PHONE_NUMBER]: Strings.company.requestItemPhoneOptional,
-} as const;
 
 function formatDraftAge(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -70,17 +61,9 @@ export default function CreateOrderScreen() {
   const [deleteDraftId, setDeleteDraftId] = useState<string | null>(null);
   const [addReturnMode, setAddReturnMode] = useState<CartTransactionType>('sale');
 
-  // Meta fields for requested items
-  const [childName, setChildName] = useState('');
-  const [childClass, setChildClass] = useState('');
-  const [parentPhone, setParentPhone] = useState('');
-
   const saleItems = useMemo(() => items.filter((i) => i.transactionType !== 'request'), [items]);
   const requestItems = useMemo(() => items.filter((i) => i.transactionType === 'request'), [items]);
-  const hasRequestItems = requestItems.length > 0;
   const hasAnyItems = items.length > 0;
-
-  const metaComplete = !hasRequestItems || (childName.trim().length > 0 && childClass.trim().length > 0);
 
   const openAddItem = useCallback(() => {
     setAddReturnMode('sale');
@@ -98,23 +81,14 @@ export default function CreateOrderScreen() {
   }, []);
 
   const handleCheckout = useCallback(() => {
-    const params = new URLSearchParams({ id });
-    if (hasRequestItems) {
-      params.set('childName', childName.trim());
-      params.set('childClass', childClass.trim());
-      if (parentPhone.trim()) params.set('parentPhone', parentPhone.trim());
-    }
-    router.push(`/company/${id}/checkout?${params.toString()}` as any);
-  }, [id, router, hasRequestItems, childName, childClass, parentPhone]);
+    router.push(`/company/${id}/checkout` as any);
+  }, [id, router]);
 
   const applyDraftToCart = useCallback(
     async (draftId: string) => {
       const d = await takeDraft(draftId);
       if (!d) return;
       replaceCart(d.items);
-      setChildName(d.requestMeta.childName);
-      setChildClass(d.requestMeta.childClass);
-      setParentPhone(d.requestMeta.parentPhone);
       setDraftsModalVisible(false);
     },
     [takeDraft, replaceCart],
@@ -170,9 +144,9 @@ export default function CreateOrderScreen() {
       companyId: typeof id === 'string' ? id : '',
       items,
       requestMeta: {
-        childName: childName.trim(),
-        childClass: childClass.trim(),
-        parentPhone: parentPhone.trim(),
+        childName: '',
+        childClass: '',
+        parentPhone: '',
       },
     });
     if (!ok) {
@@ -180,11 +154,8 @@ export default function CreateOrderScreen() {
       return;
     }
     clearCart();
-    setChildName('');
-    setChildClass('');
-    setParentPhone('');
     toast.show({ type: 'success', message: Strings.company.localDraftSavedToast });
-  }, [items, drafts.length, saveDraft, id, childName, childClass, parentPhone, clearCart]);
+  }, [items, drafts.length, saveDraft, id, clearCart]);
 
   const draftSummaryLine = useCallback((d: LocalOrderDraft) => {
     const c = draftItemLineCount(d.items);
@@ -355,44 +326,6 @@ export default function CreateOrderScreen() {
             </Pressable>
 
             {requestItems.map(renderCartItem)}
-
-            {hasRequestItems && (
-              <View style={[styles.metaCard, { backgroundColor: colors.background, borderColor: REQUEST_PURPLE + '40' }]}>
-                <ThemedText style={[styles.metaTitle, { color: REQUEST_PURPLE }]}>
-                  Student Details
-                </ThemedText>
-                <TextInput
-                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_NAME]}
-                  placeholderTextColor={colors.icon}
-                  value={childName}
-                  onChangeText={setChildName}
-                  returnKeyType="next"
-                />
-                <TextInput
-                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.STUDENT_CLASS]}
-                  placeholderTextColor={colors.icon}
-                  value={childClass}
-                  onChangeText={setChildClass}
-                  returnKeyType="next"
-                />
-                <TextInput
-                  style={[styles.metaInput, { borderColor: colors.icon + '30', color: colors.text, backgroundColor: colors.background }]}
-                  placeholder={REQUEST_ITEM_FORM_PLACEHOLDER[OrderItemRequestField.PHONE_NUMBER]}
-                  placeholderTextColor={colors.icon}
-                  value={parentPhone}
-                  onChangeText={setParentPhone}
-                  keyboardType="phone-pad"
-                  returnKeyType="done"
-                />
-                {!metaComplete && (
-                  <ThemedText style={styles.metaWarning}>
-                    * Child Name and Class are required to proceed.
-                  </ThemedText>
-                )}
-              </View>
-            )}
           </>
         ) : null}
       </ScrollView>
@@ -418,11 +351,8 @@ export default function CreateOrderScreen() {
             </ThemedText>
           </View>
           <Pressable
-            onPress={metaComplete ? handleCheckout : undefined}
-            style={[
-              styles.checkoutBtn,
-              { backgroundColor: metaComplete ? colors.tint : colors.icon + '40' },
-            ]}
+            onPress={handleCheckout}
+            style={[styles.checkoutBtn, { backgroundColor: colors.tint }]}
           >
             <ThemedText style={styles.checkoutText}>{Strings.common.checkout}</ThemedText>
             <IconSymbol name="chevron.right" size={18} color="#fff" />
@@ -750,24 +680,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   sectionLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-
-  // Meta fields
-  metaCard: {
-    marginTop: 8,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 10,
-  },
-  metaTitle: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  metaInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-  },
-  metaWarning: { fontSize: 12, color: '#C62828' },
 
   bottomBar: {
     position: 'absolute',
