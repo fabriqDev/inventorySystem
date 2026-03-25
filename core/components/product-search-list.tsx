@@ -12,21 +12,15 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
+import { ProductListItemCell } from '@/core/components/product-list-item-cell';
 import { ThemedText } from '@/core/components/themed-text';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
-import { formatPrice } from '@/core/services/format';
 import { Strings } from '@/core/strings';
-import {
-  getAvailableStock,
-  UNIFORM_GROUP_TAB_ORDER,
-  UniformGroup,
-  type Product,
-  type UniformGroupValue,
-} from '@/core/types/product';
+import { UNIFORM_GROUP_TAB_ORDER, UniformGroup, type Product, type UniformGroupValue } from '@/core/types/product';
 
 type UniformGroupFilter = 'all' | UniformGroupValue;
 
@@ -70,7 +64,7 @@ interface Props {
   companyId: string;
   onSelectProduct?: (product: Product) => void;
   showQuantity?: boolean;
-  /** When provided, used instead of the default row (e.g. for inventory screen with custom cell). */
+  /** When provided, used instead of the default row (e.g. inventory passes the same cell with `lowStockThreshold`). */
   renderItem?: (item: Product) => React.ReactNode;
 }
 
@@ -172,53 +166,14 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
   }, [showingBackend, backendHasMore, backendLoadingMore, backendPage, runBackendSearch]);
 
   const defaultRenderItem = useCallback(
-    ({ item }: { item: Product }) => {
-      const outOfStock = getAvailableStock(item) === 0;
-      return (
-      <Pressable
-        onPress={() => onSelectProduct?.(item)}
-        style={({ pressed }) => [
-          styles.card,
-          outOfStock
-            ? {
-                backgroundColor: colors.outOfStockSurface,
-                borderColor: colors.outOfStockBorder,
-              }
-            : { backgroundColor: colors.background, borderColor: colors.icon + '30' },
-          pressed && onSelectProduct && styles.cardPressed,
-        ]}
-      >
-        <View style={styles.cardBody}>
-          <ThemedText type="defaultSemiBold" numberOfLines={2} style={styles.productName}>
-            {item.name}
-          </ThemedText>
-          {item.size?.trim() ? (
-            <ThemedText style={[styles.sizeLabel, { color: colors.icon }]}>
-              Size: <ThemedText style={styles.sizeValue}>{item.size.trim()}</ThemedText>
-            </ThemedText>
-          ) : null}
-          <ThemedText style={[styles.codeText, { color: colors.icon }]}>
-            Code: {item.scan_code}
-          </ThemedText>
-        </View>
-        <View style={styles.cardRight}>
-          {!showQuantity && (
-            <View style={[styles.priceBadge, { backgroundColor: colors.tint + '15' }]}>
-              <ThemedText style={[styles.priceText, { color: colors.tint }]}>
-                {formatPrice(item.price, item.currency)}
-              </ThemedText>
-            </View>
-          )}
-          {showQuantity && item.quantity != null && (
-            <ThemedText style={[styles.qty, { color: colors.icon }]}>
-              Qty: {getAvailableStock(item)}
-            </ThemedText>
-          )}
-        </View>
-      </Pressable>
-      );
-    },
-    [colors, onSelectProduct, showQuantity],
+    ({ item }: { item: Product }) => (
+      <ProductListItemCell
+        product={item}
+        showQuantity={showQuantity}
+        onPress={onSelectProduct}
+      />
+    ),
+    [onSelectProduct, showQuantity],
   );
 
   const renderItem = useCallback(
@@ -380,23 +335,6 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
   list: { paddingHorizontal: 16, paddingBottom: 24 },
   separator: { height: 10 },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  cardPressed: { opacity: 0.7 },
-  cardBody: { flex: 1, gap: 2 },
-  productName: { fontSize: 15 },
-  sizeLabel: { fontSize: 12 },
-  sizeValue: { fontWeight: '600', fontSize: 12 },
-  codeText: { fontSize: 12 },
-  cardRight: { alignItems: 'flex-end', gap: 4, marginLeft: 12 },
-  priceBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  priceText: { fontSize: 13, fontWeight: '600' },
-  qty: { fontSize: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   noLocal: { marginBottom: 12 },
   searchBackendBtn: {

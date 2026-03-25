@@ -3,10 +3,10 @@ import { StyleSheet, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 
 import { ThemedView } from '@/core/components/themed-view';
+import { ProductListItemCell } from '@/core/components/product-list-item-cell';
 import { ProductSearchList } from '@/core/components/product-search-list';
 import { Strings } from '@/core/strings';
 import type { Product } from '@/core/types/product';
-import { InventoryProductCell } from '../components/InventoryProductCell';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 
 const LOW_STOCK_THRESHOLD = 10;
@@ -17,8 +17,9 @@ export default function InventoryScreen() {
 
   const renderInventoryCell = useCallback(
     (item: Product) => (
-      <InventoryProductCell
+      <ProductListItemCell
         product={item}
+        showQuantity
         onPress={setSelectedProduct}
         lowStockThreshold={LOW_STOCK_THRESHOLD}
       />

@@ -107,6 +107,10 @@ export const Strings = {
     available: 'Available',
     /** Inventory cell when available qty is 0. */
     productNotAvailable: 'Not available',
+    /** Product search list row: label before article / scan code (value is semibold in UI). */
+    productListArticleCodeLabel: 'Article Code:',
+    /** Product search list row: label before available stock (value is semibold in UI). */
+    productListAvailableQtyLabel: 'Available Quantity:',
     /** Inventory cell when 0 < available < low-stock threshold. */
     productStockLow: 'Product stock low',
     cartEmpty: 'Cart is empty. Tap Add item or Return item to scan or search.',
