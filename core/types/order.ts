@@ -1,6 +1,24 @@
 import { CartTransactionType } from './cart';
 
-export type OrderStatusEnum = 'success' | 'failed' | 'pending';
+/** Backend `order_history.status` values — keep in sync with Hasura. */
+export const OrderStatus = {
+  PENDING: 'pending',
+  SUCCESS: 'success',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+} as const;
+
+export type OrderStatusEnum = (typeof OrderStatus)[keyof typeof OrderStatus];
+
+const ORDER_STATUS_SET = new Set<string>(Object.values(OrderStatus));
+
+/** Normalize server/user status; unknown → success (default). */
+export function parseOrderStatus(raw: unknown): OrderStatusEnum {
+  if (raw == null || raw === '') return OrderStatus.SUCCESS;
+  const s = String(raw).trim().toLowerCase();
+  if (ORDER_STATUS_SET.has(s)) return s as OrderStatusEnum;
+  return OrderStatus.SUCCESS;
+}
 
 // ── Payment type constants & type ────────────────────────────────────────────
 export const PaymentType = {
@@ -151,15 +169,15 @@ export interface Order {
   notes?: string;
 }
 
-/** Aggregated stats for a set of orders (from server aggregate query). */
+/** Aggregated stats for **success** orders only (same date/company scope as list query). */
 export interface OrderStats {
-  /** Sum of total across all matched orders. Backend total already accounts for refunds. */
+  /** Sum of `total` for success orders. */
   totalRevenue: number;
-  /** Sum of refund_amount across all matched orders. */
+  /** Sum of `refund_amount` for success orders. */
   totalRefunds: number;
-  /** Sum of cash_share across all matched orders. */
+  /** Sum of `cash_share` for success orders. */
   cashTotal: number;
-  /** Sum of online_share across all matched orders. */
+  /** Sum of `online_share` for success orders. */
   onlineTotal: number;
 }
 
@@ -183,6 +201,29 @@ export interface OrderItem {
   tax_percentage?: number;
   tax_amount?: number;
   total: number;
+}
+
+/**
+ * Optimistic stock deltas to undo a completed order in local product cache (inverse of checkout
+ * `adjustStock`). Request lines are skipped; sale/refund deltas are merged per `article_code`.
+ */
+export function stockAdjustmentsForCancelledOrder(
+  items: OrderItem[],
+): { article_code: string; quantity_delta: number }[] {
+  const deltas = new Map<string, number>();
+  for (const line of items) {
+    const t = line.transaction_type ?? 'sale';
+    if (t === 'request') continue;
+    const code = line.article_code?.trim();
+    if (!code) continue;
+    const q = Number(line.quantity);
+    if (!Number.isFinite(q) || q <= 0) continue;
+    const delta = t === 'refund' ? -q : q;
+    deltas.set(code, (deltas.get(code) ?? 0) + delta);
+  }
+  return [...deltas.entries()]
+    .filter(([, d]) => d !== 0)
+    .map(([article_code, quantity_delta]) => ({ article_code, quantity_delta }));
 }
 
 export interface OrderWithItems extends Order {

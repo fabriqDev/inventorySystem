@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -20,9 +28,42 @@ import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { Strings } from '@/core/strings';
-import { UNIFORM_GROUP_TAB_ORDER, UniformGroup, type Product, type UniformGroupValue } from '@/core/types/product';
+import {
+  getAvailableStock,
+  isLowStockProduct,
+  UNIFORM_GROUP_TAB_ORDER,
+  UniformGroup,
+  type Product,
+  type UniformGroupValue,
+} from '@/core/types/product';
 
-type UniformGroupFilter = 'all' | UniformGroupValue;
+const QUICK_FILTER_LOW_STOCK = 'low_stock' as const;
+const QUICK_FILTER_UNAVAILABLE = 'unavailable' as const;
+export type ProductQuickFilter =
+  | 'all'
+  | UniformGroupValue
+  | typeof QUICK_FILTER_LOW_STOCK
+  | typeof QUICK_FILTER_UNAVAILABLE;
+
+/** Apply the same chip filters as the list (on an already search-filtered cached list). */
+export function applyProductQuickFilter(
+  products: Product[],
+  quickFilter: ProductQuickFilter,
+): Product[] {
+  if (quickFilter === 'all') return products;
+  if (quickFilter === QUICK_FILTER_UNAVAILABLE) {
+    return products.filter((p) => getAvailableStock(p) === 0);
+  }
+  if (quickFilter === QUICK_FILTER_LOW_STOCK) {
+    return products.filter((p) => isLowStockProduct(p));
+  }
+  return products.filter((p) => p.uniform_group === quickFilter);
+}
+
+export type ProductSearchListHandle = {
+  /** Company cache only: current search + quick filter. Ignores “Search backend” pagination results. */
+  getProductsForExport: () => Product[];
+};
 
 function uniformGroupFilterLabel(g: UniformGroupValue): string {
   switch (g) {
@@ -39,9 +80,11 @@ function uniformGroupFilterLabel(g: UniformGroupValue): string {
   }
 }
 
-const UNIFORM_GROUP_FILTER_TABS: { value: UniformGroupFilter; label: string }[] = [
+const PRODUCT_QUICK_FILTER_TABS: { value: ProductQuickFilter; label: string }[] = [
   { value: 'all', label: Strings.company.all },
   ...UNIFORM_GROUP_TAB_ORDER.map((g) => ({ value: g, label: uniformGroupFilterLabel(g) })),
+  { value: QUICK_FILTER_LOW_STOCK, label: Strings.company.productSearchLowStock },
+  { value: QUICK_FILTER_UNAVAILABLE, label: Strings.company.productSearchNotAvailable },
 ];
 
 /** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
@@ -71,7 +114,10 @@ interface Props {
 /** Screens wider than this (in dp/pt) get a 2-column grid; phones stay single-column. */
 const TWO_COLUMN_BREAKPOINT = 600;
 
-export function ProductSearchList({ companyId, onSelectProduct, showQuantity, renderItem: customRenderItem }: Props) {
+export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(function ProductSearchList(
+  { companyId, onSelectProduct, showQuantity, renderItem: customRenderItem },
+  ref,
+) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
@@ -86,7 +132,8 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
   } = useProductCache();
 
   const [search, setSearch] = useState('');
-  const [uniformGroupFilter, setUniformGroupFilter] = useState<UniformGroupFilter>('all');
+  /** Mutually exclusive: all, one uniform group, low stock, or out of stock only. */
+  const [quickFilter, setQuickFilter] = useState<ProductQuickFilter>('all');
   const [backendResults, setBackendResults] = useState<Product[] | null>(null);
   const [backendLoading, setBackendLoading] = useState(false);
   const [backendLoadingMore, setBackendLoadingMore] = useState(false);
@@ -99,7 +146,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
   }, []);
 
   useEffect(() => {
-    setUniformGroupFilter('all');
+    setQuickFilter('all');
   }, [companyId]);
 
   const localFiltered = useMemo(
@@ -107,16 +154,24 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
     [companyId, filterProducts, search],
   );
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      getProductsForExport: () => applyProductQuickFilter(localFiltered, quickFilter),
+    }),
+    [localFiltered, quickFilter],
+  );
+
   const rawDisplayProducts = backendResults !== null ? backendResults : localFiltered;
-  const groupFilteredProducts = useMemo(() => {
-    if (uniformGroupFilter === 'all') return rawDisplayProducts;
-    return rawDisplayProducts.filter((p) => p.uniform_group === uniformGroupFilter);
-  }, [rawDisplayProducts, uniformGroupFilter]);
+  const filteredProducts = useMemo(
+    () => applyProductQuickFilter(rawDisplayProducts, quickFilter),
+    [rawDisplayProducts, quickFilter],
+  );
 
   const displayProducts = useMemo(() => {
-    if (groupFilteredProducts.length <= 1) return groupFilteredProducts;
-    return [...groupFilteredProducts].sort(compareProductsByNameThenSize);
-  }, [groupFilteredProducts]);
+    if (filteredProducts.length <= 1) return filteredProducts;
+    return [...filteredProducts].sort(compareProductsByNameThenSize);
+  }, [filteredProducts]);
   const showingBackend = backendResults !== null;
   const showSearchBackendButton =
     search.trim().length > 0 && localFiltered.length === 0 && !showingBackend;
@@ -218,17 +273,22 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
         contentContainerStyle={styles.filtersContent}
         style={styles.filtersScroll}
       >
-        {UNIFORM_GROUP_FILTER_TABS.map((tab, chipIndex) => {
-          const active = uniformGroupFilter === tab.value;
+        {PRODUCT_QUICK_FILTER_TABS.map((tab, chipIndex) => {
+          const active = quickFilter === tab.value;
+          const isUnavailableTab = tab.value === QUICK_FILTER_UNAVAILABLE;
+          const isLowStockTab = tab.value === QUICK_FILTER_LOW_STOCK;
+          /** Same red accent as “Not available” for stock-related quick filters. */
+          const activeBg =
+            isUnavailableTab || isLowStockTab ? '#C62828' : colors.tint;
           return (
             <Pressable
               key={tab.value}
-              onPress={() => setUniformGroupFilter(tab.value)}
+              onPress={() => setQuickFilter(tab.value)}
               style={({ pressed }) => [
                 styles.chip,
-                chipIndex < UNIFORM_GROUP_FILTER_TABS.length - 1 && styles.chipSpacing,
+                chipIndex < PRODUCT_QUICK_FILTER_TABS.length - 1 && styles.chipSpacing,
                 active
-                  ? { backgroundColor: colors.tint }
+                  ? { backgroundColor: activeBg }
                   : { backgroundColor: colors.icon + '12', borderWidth: 1, borderColor: colors.icon + '22' },
                 pressed && { opacity: 0.85 },
               ]}
@@ -293,7 +353,7 @@ export function ProductSearchList({ companyId, onSelectProduct, showQuantity, re
       )}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

@@ -18,6 +18,9 @@ export const Strings = {
   },
   common: {
     cancel: 'Cancel',
+    /** Destructive confirm (e.g. cancel order). */
+    confirm: 'Confirm',
+    dismiss: 'Dismiss',
     done: 'Done',
     menu: 'Menu',
     logout: 'Logout',
@@ -52,6 +55,11 @@ export const Strings = {
     addProducts: 'Add Products',
     requestedItems: 'Requested Items',
     inventoryDescription: 'View products & stock levels',
+    /** Inventory header: download CSV (opens in Excel). */
+    inventoryDownloadExcelA11y: 'Download inventory spreadsheet',
+    inventoryExportEmpty: 'No products to export.',
+    inventoryExportSuccess: 'Inventory spreadsheet ready.',
+    inventoryExportError: 'Could not export inventory. Try again.',
     salesDescription: 'View past orders & revenue',
     createOrderDescription: 'Start a new order',
     transferDescription: 'Transfer stock between companies',
@@ -59,6 +67,11 @@ export const Strings = {
     requestedItemsDescription: 'View & fulfill pending item requests',
     noTilesAvailable: 'No tiles available',
     orders: 'Orders',
+    cancelOrder: 'Cancel order',
+    cancelOrderConfirmTitle: 'Cancel this order?',
+    cancelOrderConfirmMessage: 'This action cannot be reverted. The order will be marked as cancelled.',
+    cancelOrderSuccess: 'Order cancelled',
+    cancelOrderFailed: 'Could not cancel order. It may already be cancelled or not eligible.',
     orderDetails: 'Order details',
     orderDetailsPrintNeedItems: 'Wait for items to load, or try opening the order again.',
     /** Sales order list cell when `customer_details` is present. */
@@ -70,6 +83,7 @@ export const Strings = {
     success: 'Success',
     failed: 'Failed',
     pending: 'Pending',
+    cancelledTab: 'Cancelled',
     refundTab: 'Refunds',
     cashTab: 'Cash',
     onlineTab: 'Online',
@@ -79,6 +93,10 @@ export const Strings = {
     uniformGroupAccessory: 'Accessory',
     uniformGroupOveralls: 'Overalls',
     uniformGroupGeneric: 'Generic',
+    /** Product search quick filter: some stock left but below app low-stock threshold (see LOW_STOCK_THRESHOLD). */
+    productSearchLowStock: 'Low stock',
+    /** Product search quick filter: available stock is 0. */
+    productSearchNotAvailable: 'Not available',
     today: 'Today',
     yesterday: 'Yesterday',
     totalSales: 'Total Sales',
@@ -214,9 +232,17 @@ export const Strings = {
     phone: 'Phone',
     fulfillmentStatus: 'Status',
     fulfillRequest: 'Fulfill',
-    fulfillConfirmMessage: 'Are you sure want to do this, this is irreversible action',
+    fulfillConfirmTitle: 'Mark as fulfilled?',
+    fulfillConfirmMessage:
+      'This line will be marked fulfilled. You can still change it later by reverting from the fulfilled list.',
+    revertRequest: 'Revert',
+    revertConfirmTitle: 'Revert fulfillment?',
+    revertConfirmMessage:
+      'This line will go back to pending. Only use if the item was marked fulfilled by mistake.',
     requestsMarkedFulfilled: 'Requests marked as fulfilled.',
+    requestsMarkedReverted: 'Fulfillment reverted to pending.',
     nothingToFulfill: 'No pending lines to update.',
+    nothingToRevert: 'No fulfilled lines to revert.',
     multipleStudentsNote: 'Multiple students on this order',
     articleCode: 'Code',
     size: 'Size',

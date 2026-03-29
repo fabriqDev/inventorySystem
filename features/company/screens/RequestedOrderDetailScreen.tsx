@@ -1,3 +1,4 @@
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,9 +10,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams } from 'expo-router';
 
-import { fetchRequestedOrderLines, fulfillSelectedItems } from '@/core/api/requested-orders';
+import { fetchRequestedOrderLines, fulfillSelectedItems, revertFulfillmentToPending } from '@/core/api/requested-orders';
+import { toBackendError, toUserMessage } from '@/core/backend/errors';
+import { ConfirmActionModal } from '@/core/components/confirm-action-modal';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
@@ -20,10 +22,13 @@ import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatAmount, formatPrice } from '@/core/services/format';
 import { toast } from '@/core/services/toast';
-import type { RequestedOrderLine } from '@/core/types/requested-orders';
 import { Strings } from '@/core/strings';
+import type { RequestedOrderLine } from '@/core/types/requested-orders';
 
 const PAGE_LIMIT = 50;
+const REVERT_BTN_RED = '#C62828';
+
+type ConfirmRequestAction = { type: 'fulfill' | 'revert'; item: RequestedOrderLine };
 
 export default function RequestedOrderDetailScreen() {
   const { orderId } = useLocalSearchParams<{ id: string; orderId: string }>();
@@ -38,8 +43,9 @@ export default function RequestedOrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedLine, setSelectedLine] = useState<RequestedOrderLine | null>(null);
-  const [confirmLine, setConfirmLine] = useState<RequestedOrderLine | null>(null);
   const [fulfillingId, setFulfillingId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmRequestAction | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -55,6 +61,7 @@ export default function RequestedOrderDetailScreen() {
       if (!silent) {
         setLoading(true);
         setLines([]);
+        setListError(null);
       }
       setPage(1);
       fetchRequestedOrderLines(orderId, { page: 1, limit: PAGE_LIMIT }, useMockData)
@@ -63,7 +70,10 @@ export default function RequestedOrderDetailScreen() {
           setLines(res.lines);
           setHasMore(res.lines.length < res.totalCount);
         })
-        .catch(() => {})
+        .catch((e) => {
+          if (!mountedRef.current) return;
+          setListError(toUserMessage(toBackendError(e)));
+        })
         .finally(() => {
           if (mountedRef.current && !silent) setLoading(false);
         });
@@ -89,36 +99,76 @@ export default function RequestedOrderDetailScreen() {
         });
         setPage(nextPage);
       })
-      .catch(() => {})
+      .catch((e) => {
+        if (!mountedRef.current) return;
+        setListError(toUserMessage(toBackendError(e)));
+      })
       .finally(() => {
         if (mountedRef.current) setLoadingMore(false);
       });
   }, [orderId, loadingMore, hasMore, loading, page, useMockData]);
 
-  const handleFulfillConfirm = useCallback(async () => {
-    if (!orderId || !confirmLine) return;
-    const requestId = confirmLine.request_id;
-    setConfirmLine(null);
-    setFulfillingId(requestId);
-    try {
-      const res = await fulfillSelectedItems(orderId, [requestId], useMockData);
-      if (res.affected_rows > 0) {
-        toast.show({ type: 'success', message: Strings.company.requestsMarkedFulfilled });
-        reloadFromStart({ silent: true });
-      } else {
-        toast.show({ type: 'info', message: Strings.company.nothingToFulfill });
+  const handleFulfillLine = useCallback(
+    async (item: RequestedOrderLine) => {
+      if (!orderId) return;
+      const requestId = item.request_id;
+      setListError(null);
+      setFulfillingId(requestId);
+      try {
+        const res = await fulfillSelectedItems(orderId, [requestId], useMockData);
+        if (res.affected_rows > 0) {
+          setListError(null);
+          toast.show({ type: 'success', message: Strings.company.requestsMarkedFulfilled });
+          reloadFromStart({ silent: true });
+        } else {
+          setListError(Strings.company.nothingToFulfill);
+        }
+      } catch (e) {
+        setListError(toUserMessage(toBackendError(e)));
+      } finally {
+        if (mountedRef.current) setFulfillingId(null);
       }
-    } catch {
-      // gqlRequest already toasts
-    } finally {
-      if (mountedRef.current) setFulfillingId(null);
-    }
-  }, [orderId, confirmLine, useMockData, reloadFromStart]);
+    },
+    [orderId, useMockData, reloadFromStart],
+  );
+
+  const handleRevertLine = useCallback(
+    async (item: RequestedOrderLine) => {
+      if (!orderId) return;
+      const requestId = item.request_id;
+      setListError(null);
+      setFulfillingId(requestId);
+      try {
+        const res = await revertFulfillmentToPending(requestId, useMockData);
+        if (res.affected_rows > 0) {
+          setListError(null);
+          toast.show({ type: 'success', message: Strings.company.requestsMarkedReverted });
+          reloadFromStart({ silent: true });
+        } else {
+          setListError(Strings.company.nothingToRevert);
+        }
+      } catch (e) {
+        setListError(toUserMessage(toBackendError(e)));
+      } finally {
+        if (mountedRef.current) setFulfillingId(null);
+      }
+    },
+    [orderId, useMockData, reloadFromStart],
+  );
+
+  const handleConfirmDialog = useCallback(() => {
+    if (!confirmAction) return;
+    const { type, item } = confirmAction;
+    setConfirmAction(null);
+    if (type === 'fulfill') void handleFulfillLine(item);
+    else void handleRevertLine(item);
+  }, [confirmAction, handleFulfillLine, handleRevertLine]);
 
   const renderLine = useCallback(
     ({ item }: { item: RequestedOrderLine }) => {
       const pending = item.fulfillment_status === 'pending';
-      const isFulfilling = fulfillingId === item.request_id;
+      const fulfilled = item.fulfillment_status === 'fulfilled';
+      const isBusy = fulfillingId === item.request_id;
       return (
         <Pressable
           onPress={() => setSelectedLine(item)}
@@ -154,21 +204,42 @@ export default function RequestedOrderDetailScreen() {
               <Pressable
                 onPress={(e) => {
                   e.stopPropagation();
-                  setConfirmLine(item);
+                  setConfirmAction({ type: 'fulfill', item });
                 }}
-                disabled={isFulfilling}
+                disabled={isBusy}
                 hitSlop={8}
                 style={[
                   styles.fulfillItemBtn,
-                  { backgroundColor: isFulfilling ? colors.icon + '40' : colors.tint },
+                  { backgroundColor: isBusy ? colors.icon + '40' : colors.tint },
                 ]}
               >
-                {isFulfilling ? (
+                {isBusy ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <ThemedText style={styles.fulfillItemBtnText}>
                     {Strings.company.fulfillRequest}
                   </ThemedText>
+                )}
+              </Pressable>
+            ) : fulfilled ? (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setConfirmAction({ type: 'revert', item });
+                }}
+                disabled={isBusy}
+                hitSlop={8}
+                style={[
+                  styles.revertItemBtn,
+                  {
+                    backgroundColor: isBusy ? REVERT_BTN_RED + '99' : REVERT_BTN_RED,
+                  },
+                ]}
+              >
+                {isBusy ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <ThemedText style={styles.revertItemBtnText}>{Strings.company.revertRequest}</ThemedText>
                 )}
               </Pressable>
             ) : null}
@@ -191,6 +262,17 @@ export default function RequestedOrderDetailScreen() {
   return (
     <ThemedView style={styles.root}>
       <Stack.Screen options={{ title: Strings.company.requestLineDetails }} />
+
+      {listError ? (
+        <View style={styles.errorBanner}>
+          <ThemedText style={styles.errorBannerText} numberOfLines={4}>
+            {listError}
+          </ThemedText>
+          <Pressable onPress={() => setListError(null)} hitSlop={8} style={styles.errorDismiss}>
+            <ThemedText style={styles.errorDismissText}>{Strings.common.dismiss}</ThemedText>
+          </Pressable>
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={styles.center}>
@@ -219,39 +301,30 @@ export default function RequestedOrderDetailScreen() {
         />
       )}
 
-      {/* Confirmation popup */}
-      <Modal
-        visible={confirmLine != null}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setConfirmLine(null)}
-      >
-        <Pressable style={styles.confirmOverlay} onPress={() => setConfirmLine(null)}>
-          <Pressable style={[styles.confirmCard, { backgroundColor: colors.background }]}>
-            <ThemedText type="defaultSemiBold" style={styles.confirmTitle}>
-              {Strings.company.fulfillConfirmMessage}
-            </ThemedText>
-            <View style={styles.confirmActions}>
-              <Pressable
-                onPress={() => setConfirmLine(null)}
-                style={[styles.confirmBtn, { borderColor: colors.icon + '40', borderWidth: 1 }]}
-              >
-                <ThemedText style={{ color: colors.text, fontWeight: '600' }}>
-                  {Strings.common.cancel}
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                onPress={handleFulfillConfirm}
-                style={[styles.confirmBtn, { backgroundColor: colors.tint }]}
-              >
-                <ThemedText style={{ color: '#fff', fontWeight: '700' }}>
-                  {Strings.company.fulfillRequest}
-                </ThemedText>
-              </Pressable>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {confirmAction ? (
+        <ConfirmActionModal
+          visible
+          onClose={() => setConfirmAction(null)}
+          title={
+            confirmAction.type === 'fulfill'
+              ? Strings.company.fulfillConfirmTitle
+              : Strings.company.revertConfirmTitle
+          }
+          message={
+            confirmAction.type === 'fulfill'
+              ? Strings.company.fulfillConfirmMessage
+              : Strings.company.revertConfirmMessage
+          }
+          cancelLabel={Strings.common.cancel}
+          confirmLabel={
+            confirmAction.type === 'fulfill'
+              ? Strings.company.fulfillRequest
+              : Strings.company.revertRequest
+          }
+          confirmColor={confirmAction.type === 'fulfill' ? colors.tint : REVERT_BTN_RED}
+          onConfirm={handleConfirmDialog}
+        />
+      ) : null}
 
       {/* Line detail modal */}
       <Modal visible={selectedLine != null} animationType="slide" onRequestClose={() => setSelectedLine(null)}>
@@ -316,6 +389,23 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   centerText: { textAlign: 'center', padding: 24 },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#C62828',
+  },
+  errorBannerText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  errorDismiss: { paddingVertical: 2, paddingHorizontal: 4 },
+  errorDismissText: { color: '#fff', fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' },
   list: { paddingHorizontal: 16, paddingTop: 8 },
   lineCard: {
     padding: 14,
@@ -345,29 +435,16 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   fulfillItemBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  confirmOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  revertItemBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
+    marginLeft: 10,
+    minHeight: 36,
   },
-  confirmCard: {
-    borderRadius: 14,
-    padding: 24,
-    maxWidth: 340,
-    width: '100%',
-    gap: 20,
-  },
-  confirmTitle: { fontSize: 16, lineHeight: 22, textAlign: 'center' },
-  confirmActions: { flexDirection: 'row', gap: 12 },
-  confirmBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
+  revertItemBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   modalRoot: { flex: 1 },
   modalHeader: {
     flexDirection: 'row',

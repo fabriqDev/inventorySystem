@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { fetchRequestedOrders } from '@/core/api/requested-orders';
 import { ThemedText } from '@/core/components/themed-text';
@@ -52,6 +52,8 @@ export default function RequestedItemsListScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  /** Skip bumping refresh on first focus (useEffect already loads); bump when returning e.g. from detail after fulfill/revert. */
+  const skipFocusRefreshRef = useRef(true);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -59,6 +61,10 @@ export default function RequestedItemsListScreen() {
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    skipFocusRefreshRef.current = true;
+  }, [id]);
 
   const openSearchModal = useCallback(() => {
     setDraftClass(appliedFilters[OrderItemRequestField.STUDENT_CLASS] ?? '');
@@ -116,6 +122,17 @@ export default function RequestedItemsListScreen() {
         if (mountedRef.current) setLoading(false);
       });
   }, [id, tab, appliedFilters, useMockData, refreshKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      if (skipFocusRefreshRef.current) {
+        skipFocusRefreshRef.current = false;
+        return;
+      }
+      setRefreshKey((k) => k + 1);
+    }, [id]),
+  );
 
   const handleRefresh = useCallback(() => {
     setRefreshKey((k) => k + 1);

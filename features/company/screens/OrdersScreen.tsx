@@ -13,8 +13,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { toBackendError, toUserMessage } from '@/core/backend/errors';
 import type { FetchOrdersOptions } from '@/core/api/orders';
-import { fetchOrderItems, fetchOrders, fetchOrdersWithItemsForExport } from '@/core/api/orders';
+import { cancelOrder, fetchOrderItems, fetchOrders, fetchOrdersWithItemsForExport } from '@/core/api/orders';
+import { ConfirmActionModal } from '@/core/components/confirm-action-modal';
 import { SalesDatePresetPicker, type SalesDatePreset } from '@/core/components/sales-date-preset-picker';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
@@ -22,6 +24,7 @@ import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
+import { useProductCache } from '@/core/context/product-cache-context';
 import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice, roundMoney } from '@/core/services/format';
@@ -29,8 +32,16 @@ import { downloadSalesOrdersPdf } from '@/core/services/pdf/sales-export-pdf';
 import { orderItemsToReceiptLineItems } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
-import type { OrderItem, OrderStats, OrderStatusEnum, OrderWithItems } from '@/core/types/order';
-import { getPaymentDisplayKey, PaymentType } from '@/core/types/order';
+import {
+  getPaymentDisplayKey,
+  OrderStatus,
+  PaymentType,
+  stockAdjustmentsForCancelledOrder,
+  type OrderItem,
+  type OrderStats,
+  type OrderStatusEnum,
+  type OrderWithItems,
+} from '@/core/types/order';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,9 +69,10 @@ const DATE_FILTER_ACTIVE_BADGE = '#C62828';
 
 const FILTERS: { label: string; value: FilterValue }[] = [
   { label: Strings.company.all, value: 'all' },
-  { label: Strings.company.success, value: 'success' },
-  { label: Strings.company.failed, value: 'failed' },
-  { label: Strings.company.pending, value: 'pending' },
+  { label: Strings.company.success, value: OrderStatus.SUCCESS },
+  { label: Strings.company.failed, value: OrderStatus.FAILED },
+  { label: Strings.company.pending, value: OrderStatus.PENDING },
+  { label: Strings.company.cancelledTab, value: OrderStatus.CANCELLED },
   { label: Strings.company.refundTab, value: 'refund' },
 ];
 
@@ -68,9 +80,10 @@ const STATUS_STYLE: Record<
   OrderStatusEnum,
   { bg: string; fg: string; icon: Parameters<typeof IconSymbol>[0]['name'] }
 > = {
-  success: { bg: '#E8F5E9', fg: '#2E7D32', icon: 'checkmark.circle.fill' },
-  failed: { bg: '#FFEBEE', fg: '#C62828', icon: 'xmark.circle.fill' },
-  pending: { bg: '#FFF3E0', fg: '#E65100', icon: 'clock.fill' },
+  [OrderStatus.SUCCESS]: { bg: '#E8F5E9', fg: '#2E7D32', icon: 'checkmark.circle.fill' },
+  [OrderStatus.FAILED]: { bg: '#FFEBEE', fg: '#C62828', icon: 'xmark.circle.fill' },
+  [OrderStatus.PENDING]: { bg: '#FFF3E0', fg: '#E65100', icon: 'clock.fill' },
+  [OrderStatus.CANCELLED]: { bg: '#F5F5F5', fg: '#616161', icon: 'slash.circle' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -242,6 +255,7 @@ export default function OrdersScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const { useMockData } = useDataSource();
+  const { adjustStock } = useProductCache();
   const { show_requested: showRequested } = useCompanyConfig();
 
   // Filter tabs
@@ -271,10 +285,21 @@ export default function OrdersScreen() {
   // Order detail modal
   const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
+  const [showCancelOrderConfirm, setShowCancelOrderConfirm] = useState(false);
+  /** Inline error on order detail modal (toasts sit behind RN Modal). */
+  const [orderDetailError, setOrderDetailError] = useState<string | null>(null);
   const itemCacheRef = useRef<Record<string, OrderItem[]>>({});
 
   const mountedRef = useRef(true);
   useEffect(() => { return () => { mountedRef.current = false; }; }, []);
+
+  useEffect(() => {
+    if (!selectedOrder) {
+      setShowCancelOrderConfirm(false);
+      setOrderDetailError(null);
+    }
+  }, [selectedOrder]);
 
   // ── Manual refresh ────────────────────────────────────────────────────────
   const [refreshKey, setRefreshKey] = useState(0);
@@ -282,6 +307,43 @@ export default function OrdersScreen() {
     itemCacheRef.current = {};
     setRefreshKey((k) => k + 1);
   }, []);
+
+  const runCancelOrder = useCallback(
+    async (orderId: string, lineItems: OrderItem[]) => {
+      if (useMockData) return;
+      setOrderDetailError(null);
+      setCancellingOrder(true);
+      try {
+        await cancelOrder(orderId, useMockData);
+        const stockAdj = stockAdjustmentsForCancelledOrder(lineItems);
+        if (id && stockAdj.length > 0) {
+          adjustStock(id, stockAdj);
+        }
+        toast.show({ type: 'success', message: Strings.company.cancelOrderSuccess });
+        setShowCancelOrderConfirm(false);
+        setSelectedOrder(null);
+        handleRefresh();
+      } catch (e) {
+        setOrderDetailError(toUserMessage(toBackendError(e)));
+        setShowCancelOrderConfirm(false);
+      } finally {
+        setCancellingOrder(false);
+      }
+    },
+    [id, useMockData, handleRefresh, adjustStock],
+  );
+
+  const promptCancelOrder = useCallback(() => {
+    if (!selectedOrder?.server_order_id || useMockData) return;
+    setOrderDetailError(null);
+    setShowCancelOrderConfirm(true);
+  }, [selectedOrder, useMockData]);
+
+  const handleCancelOrderConfirm = useCallback(() => {
+    const oid = selectedOrder?.server_order_id;
+    if (!oid || useMockData) return;
+    void runCancelOrder(oid, selectedOrder.items ?? []);
+  }, [selectedOrder, useMockData, runCancelOrder]);
 
   // ── Build fetch options ───────────────────────────────────────────────────
 
@@ -410,6 +472,7 @@ export default function OrdersScreen() {
   }, [id, selectedOrder, loadingItems, router]);
 
   const handleOpenOrder = useCallback(async (order: OrderWithItems) => {
+    setOrderDetailError(null);
     setSelectedOrder(order);
     const orderId = order.server_order_id ?? '';
     if (!orderId) return;
@@ -804,7 +867,22 @@ export default function OrdersScreen() {
               </Pressable>
             </View>
           </View>
+          {orderDetailError ? (
+            <View style={styles.orderDetailErrorBanner}>
+              <ThemedText style={styles.orderDetailErrorText} numberOfLines={4}>
+                {orderDetailError}
+              </ThemedText>
+              <Pressable
+                onPress={() => setOrderDetailError(null)}
+                hitSlop={8}
+                style={styles.orderDetailErrorDismiss}
+              >
+                <ThemedText style={styles.orderDetailErrorDismissText}>{Strings.common.dismiss}</ThemedText>
+              </Pressable>
+            </View>
+          ) : null}
           {selectedOrder && (
+            <>
             <ScrollView
               style={styles.modalScroll}
               contentContainerStyle={styles.modalContent}
@@ -914,7 +992,39 @@ export default function OrdersScreen() {
                 </ThemedText>
               </View>
             </ScrollView>
+            {selectedOrder.status === OrderStatus.SUCCESS && !useMockData ? (
+              <View style={[styles.modalFooter, { borderTopColor: colors.icon + '20', backgroundColor: colors.background }]}>
+                <Pressable
+                  onPress={promptCancelOrder}
+                  disabled={cancellingOrder}
+                  style={({ pressed }) => [
+                    styles.cancelOrderBtn,
+                    pressed && !cancellingOrder && { opacity: 0.88 },
+                    cancellingOrder && styles.cancelOrderBtnDisabled,
+                  ]}
+                >
+                  {cancellingOrder ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <ThemedText style={styles.cancelOrderBtnText}>{Strings.company.cancelOrder}</ThemedText>
+                  )}
+                </Pressable>
+              </View>
+            ) : null}
+            </>
           )}
+          <ConfirmActionModal
+            presentation="overlay"
+            visible={showCancelOrderConfirm && selectedOrder != null}
+            onClose={() => !cancellingOrder && setShowCancelOrderConfirm(false)}
+            title={Strings.company.cancelOrderConfirmTitle}
+            message={Strings.company.cancelOrderConfirmMessage}
+            cancelLabel={Strings.common.cancel}
+            confirmLabel={Strings.common.confirm}
+            confirmColor="#C62828"
+            loading={cancellingOrder}
+            onConfirm={handleCancelOrderConfirm}
+          />
         </ThemedView>
       </Modal>
 
@@ -1212,6 +1322,23 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
+  orderDetailErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#C62828',
+  },
+  orderDetailErrorText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  orderDetailErrorDismiss: { paddingVertical: 2, paddingHorizontal: 4 },
+  orderDetailErrorDismissText: { color: '#fff', fontWeight: '700', fontSize: 13, textDecorationLine: 'underline' },
   modalTitle: { flex: 1 },
   modalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   modalHeaderActionBtn: { paddingVertical: 4, paddingHorizontal: 4 },
@@ -1219,6 +1346,22 @@ const styles = StyleSheet.create({
   modalCloseBtn: { paddingVertical: 4, paddingHorizontal: 4 },
   modalScroll: { flex: 1 },
   modalContent: { padding: 16, paddingBottom: 24 },
+  modalFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  cancelOrderBtn: {
+    backgroundColor: '#C62828',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  cancelOrderBtnDisabled: { opacity: 0.65 },
+  cancelOrderBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   detailRow: { marginBottom: 8, fontSize: 14 },
   detailBlock: { marginBottom: 10 },
   detailLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },

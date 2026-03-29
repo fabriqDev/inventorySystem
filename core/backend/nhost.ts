@@ -7,11 +7,11 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-import { toBackendError, toUserMessage } from '@/core/backend/errors';
+import { BackendError, toBackendError, toUserMessage } from '@/core/backend/errors';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/types/requested-orders';
 import { toast } from '@/core/services/toast';
-import { PaymentProvider, PaymentType } from '@/core/types/order';
+import { OrderStatus, PaymentProvider, PaymentType, parseOrderStatus } from '@/core/types/order';
 import type { OrderWithItems } from '@/core/types/order';
 import { parseUniformGroup, type Product } from '@/core/types/product';
 import type {
@@ -221,10 +221,16 @@ function extractHasuraMessage(err: any): string {
   return err?.message ?? 'Request failed';
 }
 
-async function gqlRequest<TData>(args: { query: string; variables?: Record<string, any> }): Promise<TData> {
+async function gqlRequest<TData>(args: {
+  query: string;
+  variables?: Record<string, any>;
+  /** When false, errors are thrown but not shown as a global toast (caller shows inline). */
+  showErrorToast?: boolean;
+}): Promise<TData> {
+  const showErrorToast = args.showErrorToast !== false;
   try {
     const client = await nhost();
-    const res = await client.graphql.request(args);
+    const res = await client.graphql.request({ query: args.query, variables: args.variables });
     const body = res.body as any;
     const err = body?.errors?.[0];
     if (err) {
@@ -233,7 +239,9 @@ async function gqlRequest<TData>(args: { query: string; variables?: Record<strin
     return (body?.data ?? {}) as TData;
   } catch (e) {
     const be = toBackendError(e);
-    toast.show({ type: 'error', message: toUserMessage(be) });
+    if (showErrorToast) {
+      toast.show({ type: 'error', message: toUserMessage(be) });
+    }
     throw be;
   }
 }
@@ -421,6 +429,12 @@ const ORDERS_QUERY = `
     ) {
       aggregate {
         count
+      }
+    }
+    success_order_stats: order_history_aggregate(
+      where: { company_id: { _eq: $companyId }, status: { _eq: "success" } }
+    ) {
+      aggregate {
         sum { total refund_amount cash_share online_share }
       }
     }
@@ -460,6 +474,16 @@ const ORDERS_QUERY_WITH_DATES = `
     ) {
       aggregate {
         count
+      }
+    }
+    success_order_stats: order_history_aggregate(
+      where: {
+        company_id: { _eq: $companyId }
+        created_at: { _gte: $dateFrom, _lte: $dateTo }
+        status: { _eq: "success" }
+      }
+    ) {
+      aggregate {
         sum { total refund_amount cash_share online_share }
       }
     }
@@ -564,6 +588,17 @@ const UPDATE_ORDER_STATUS_MUTATION = `
   }
 `;
 
+const CANCEL_ORDER_MUTATION = `
+  mutation CancelOrder($orderId: uuid!) {
+    update_order_history(
+      where: { order_id: { _eq: $orderId }, status: { _eq: "success" } }
+      _set: { status: "cancelled" }
+    ) {
+      affected_rows
+    }
+  }
+`;
+
 /** Dynamic where built in TS; list + aggregate share the same filter. */
 const REQUEST_ORDERS_BUNDLED_QUERY = `
   query GetRequestsBundledByOrder($where: order_history_bool_exp!, $limit: Int!, $offset: Int!) {
@@ -639,6 +674,20 @@ const FULFILL_SELECTIVE_ORDER_ITEMS_MUTATION = `
         ]
       }
       _set: { fulfillment_status: "fulfilled" }
+    ) {
+      affected_rows
+    }
+  }
+`;
+
+const REVERT_FULFILLMENT_TO_PENDING_MUTATION = `
+  mutation RevertFulfillmentToPending($requestId: uuid!) {
+    update_order_item_requests(
+      where: {
+        id: { _eq: $requestId }
+        fulfillment_status: { _eq: "fulfilled" }
+      }
+      _set: { fulfillment_status: "pending" }
     ) {
       affected_rows
     }
@@ -909,7 +958,7 @@ function mapOrderHistoryRowWithItems(o: any, companyId: string): OrderWithItems 
     payment_provider: o.payment_provider ?? PaymentProvider.NONE,
     cash_share: o.cash_share ?? 0,
     online_share: o.online_share ?? 0,
-    status: o.status ?? 'success',
+    status: parseOrderStatus(o.status),
     created_at: o.created_at ?? new Date().toISOString(),
     customer_details: o.customer_details ?? undefined,
     notes: o.notes ?? undefined,
@@ -1013,6 +1062,7 @@ const data: DataProvider = {
 
     const rows = d?.order_history ?? [];
     const aggregate = d?.order_history_aggregate?.aggregate ?? {};
+    const successSum = d?.success_order_stats?.aggregate?.sum ?? {};
 
     const orders = rows.map((o: any) => ({
       server_order_id: o.order_id,
@@ -1025,7 +1075,7 @@ const data: DataProvider = {
       payment_provider: o.payment_provider ?? PaymentProvider.NONE,
       cash_share: o.cash_share ?? 0,
       online_share: o.online_share ?? 0,
-      status: o.status ?? 'success',
+      status: parseOrderStatus(o.status),
       created_at: o.created_at ?? new Date().toISOString(),
       customer_details: o.customer_details ?? undefined,
       notes: o.notes ?? undefined,
@@ -1036,10 +1086,10 @@ const data: DataProvider = {
       orders,
       totalCount: aggregate.count ?? 0,
       stats: {
-        totalRevenue: aggregate.sum?.total ?? 0,
-        totalRefunds: aggregate.sum?.refund_amount ?? 0,
-        cashTotal: aggregate.sum?.cash_share ?? 0,
-        onlineTotal: aggregate.sum?.online_share ?? 0,
+        totalRevenue: successSum.total ?? 0,
+        totalRefunds: successSum.refund_amount ?? 0,
+        cashTotal: successSum.cash_share ?? 0,
+        onlineTotal: successSum.online_share ?? 0,
       },
     };
   },
@@ -1133,7 +1183,7 @@ const data: DataProvider = {
           ...(input.payment_provider ? { payment_provider: input.payment_provider } : {}),
           cash_share: input.cash_share,
           online_share: input.online_share,
-          status: input.status ?? 'success',
+          status: input.status ?? OrderStatus.SUCCESS,
           ...(trimmedNotes ? { notes: trimmedNotes } : {}),
           ...(buyerPayload ? { customer_details: buyerPayload } : {}),
           order_items: { data: orderItemsData },
@@ -1169,7 +1219,7 @@ const data: DataProvider = {
     });
     return {
       success: d.verifyRazorpayPayment.success,
-      status: d.verifyRazorpayPayment.status,
+      status: parseOrderStatus(d.verifyRazorpayPayment.status),
     };
   },
 
@@ -1178,6 +1228,20 @@ const data: DataProvider = {
       query: UPDATE_ORDER_STATUS_MUTATION,
       variables: { orderId: input.server_order_id, status: input.status },
     });
+  },
+
+  async cancelOrder(orderId: string): Promise<void> {
+    const d = await gqlRequest<any>({
+      query: CANCEL_ORDER_MUTATION,
+      variables: { orderId },
+    });
+    const affected = d?.update_order_history?.affected_rows ?? 0;
+    if (affected < 1) {
+      throw new BackendError({
+        message: 'Order could not be cancelled',
+        kind: 'validation',
+      });
+    }
   },
 
   async fetchRequestedOrders(companyId, opts) {
@@ -1215,6 +1279,17 @@ const data: DataProvider = {
     const d = await gqlRequest<any>({
       query: FULFILL_SELECTIVE_ORDER_ITEMS_MUTATION,
       variables: { orderId, requestIds },
+      showErrorToast: false,
+    });
+    const affected = d?.update_order_item_requests?.affected_rows ?? 0;
+    return { success: true, affected_rows: typeof affected === 'number' ? affected : 0 };
+  },
+
+  async revertFulfillmentToPending(requestId) {
+    const d = await gqlRequest<any>({
+      query: REVERT_FULFILLMENT_TO_PENDING_MUTATION,
+      variables: { requestId },
+      showErrorToast: false,
     });
     const affected = d?.update_order_item_requests?.affected_rows ?? 0;
     return { success: true, affected_rows: typeof affected === 'number' ? affected : 0 };

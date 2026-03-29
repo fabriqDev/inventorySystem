@@ -51,6 +51,8 @@ const MAPPING = {
   'printer.fill': 'print',
   'line.3.horizontal.decrease.circle': 'filter-list',
   'list.bullet.clipboard.fill': 'assignment',
+  'slash.circle': 'block',
+  'square.and.arrow.down': 'download',
 } as IconMapping;
 
 /**

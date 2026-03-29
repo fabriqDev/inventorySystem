@@ -34,3 +34,11 @@ export async function fulfillSelectedItems(
   if (useMock) return { success: true, affected_rows: 0 };
   return backend.data.fulfillSelectedItems(orderId, requestIds);
 }
+
+export async function revertFulfillmentToPending(
+  requestId: string,
+  useMock: boolean,
+): Promise<{ success: boolean; affected_rows: number }> {
+  if (useMock) return { success: true, affected_rows: 1 };
+  return backend.data.revertFulfillmentToPending(requestId);
+}

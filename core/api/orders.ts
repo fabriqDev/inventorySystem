@@ -11,7 +11,7 @@ import type {
   VerifyRazorpayPaymentResult,
 } from '@/core/backend/types';
 import { createMockOrder, getMockOrders } from '@/core/services/mock-data';
-import type { OrderItem, OrdersResponse, OrderWithItems } from '@/core/types/order';
+import { OrderStatus, type OrderItem, type OrdersResponse, type OrderWithItems } from '@/core/types/order';
 
 export type { FetchOrdersOptions, FetchOrdersWithItemsExportOptions };
 
@@ -75,6 +75,13 @@ export async function updateOrderStatus(
   return backend.data.updateOrderStatus(input);
 }
 
+export async function cancelOrder(orderId: string, useMock: boolean): Promise<void> {
+  if (useMock) {
+    return;
+  }
+  return backend.data.cancelOrder(orderId);
+}
+
 async function mockFetchOrders(
   companyId: string,
   { status }: FetchOrdersOptions,
@@ -89,16 +96,18 @@ async function mockFetchOrders(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
-  const totalRevenue = sorted.reduce((s, o) => s + (o.total ?? 0), 0);
-  const cashTotal = sorted.reduce((s, o) => s + (o.cash_share ?? 0), 0);
-  const onlineTotal = sorted.reduce((s, o) => s + (o.online_share ?? 0), 0);
+  const successOrders = sorted.filter((o) => o.status === OrderStatus.SUCCESS);
+  const totalRevenue = successOrders.reduce((s, o) => s + (o.total ?? 0), 0);
+  const cashTotal = successOrders.reduce((s, o) => s + (o.cash_share ?? 0), 0);
+  const onlineTotal = successOrders.reduce((s, o) => s + (o.online_share ?? 0), 0);
+  const totalRefunds = successOrders.reduce((s, o) => s + (o.refund_amount ?? 0), 0);
 
   return {
     orders: sorted,
     totalCount: sorted.length,
     stats: {
       totalRevenue,
-      totalRefunds: 0,
+      totalRefunds,
       cashTotal,
       onlineTotal,
     },

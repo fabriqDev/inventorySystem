@@ -38,6 +38,7 @@ import { openRazorpayCheckout, RazorpayError } from '@/core/services/razorpay';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
 import type { CartItem } from '@/core/types/cart';
+import { OrderStatus } from '@/core/types/order';
 import { CheckoutButton, type PaymentButtonToShowEnum, getOrderPaymentForCheckout } from '@/core/types/order';
 import { getAvailableStock } from '@/core/types/product';
 
@@ -639,7 +640,7 @@ export default function CheckoutScreen() {
         payment_provider: payment.payment_provider,
         cash_share: payment.cash_share,
         online_share: payment.online_share,
-        status: 'pending',
+        status: OrderStatus.PENDING,
         notes: orderNotes.trim() || undefined,
         buyer_details: buildBuyerDetailsPayload(),
         order_items: cartToOrderItems(items, requestDetailsForOrder),
@@ -666,7 +667,7 @@ export default function CheckoutScreen() {
           `${rzMsg} No payment was charged. Please check your connection and try again.`,
         );
         try {
-          await updateOrderStatus({ server_order_id: serverOrderId, status: 'failed' });
+          await updateOrderStatus({ server_order_id: serverOrderId, status: OrderStatus.FAILED });
         } catch { /* best effort cleanup */ }
         setSubmitting(false);
         return;
@@ -728,7 +729,7 @@ export default function CheckoutScreen() {
 
     if (ctx && !wasVerifyFailed) {
       try {
-        await updateOrderStatus({ server_order_id: ctx.serverOrderId, status: 'failed' });
+        await updateOrderStatus({ server_order_id: ctx.serverOrderId, status: OrderStatus.FAILED });
       } catch { /* best effort */ }
     }
 

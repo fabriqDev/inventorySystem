@@ -173,6 +173,8 @@ export interface DataProvider {
   createRazorpayOrder(input: CreateRazorpayOrderInput): Promise<CreateRazorpayOrderResult>;
   verifyRazorpayPayment(input: VerifyRazorpayPaymentInput): Promise<VerifyRazorpayPaymentResult>;
   updateOrderStatus(input: UpdateOrderStatusInput): Promise<void>;
+  /** Sets status to cancelled when current status is success; throws if no row updated. */
+  cancelOrder(orderId: string): Promise<void>;
   fetchPendingTransfers(companyId: string): Promise<InventoryTransfer[]>;
   fetchTransferHistory(companyId: string): Promise<InventoryTransfer[]>;
   createTransfer(input: CreateTransferInput): Promise<CreateTransferResult | null>;
@@ -188,6 +190,7 @@ export interface DataProvider {
     opts: FetchRequestedOrderLinesOptions,
   ): Promise<RequestedOrderLinesResponse>;
   fulfillSelectedItems(orderId: string, requestIds: string[]): Promise<{ success: boolean; affected_rows: number }>;
+  revertFulfillmentToPending(requestId: string): Promise<{ success: boolean; affected_rows: number }>;
 }
 
 export interface BackendProvider {
