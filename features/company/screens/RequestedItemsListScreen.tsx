@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -26,7 +25,7 @@ import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice } from '@/core/services/format';
-import { downloadRequestedOrdersFulfillmentPdf } from '@/core/services/pdf/requested-orders-fulfillment-pdf';
+import { exportRequestedOrdersCsv } from '@/core/services/requested-orders-csv';
 import { toast } from '@/core/services/toast';
 import {
   OrderItemRequestField,
@@ -62,8 +61,8 @@ export default function RequestedItemsListScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const [pdfChoiceOpen, setPdfChoiceOpen] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   /** Skip bumping refresh on first focus (useEffect already loads); bump when returning e.g. from detail after fulfill/revert. */
   const skipFocusRefreshRef = useRef(true);
@@ -239,20 +238,16 @@ export default function RequestedItemsListScreen() {
     useMockData,
   ]);
 
-  const handleOpenPdfMenu = useCallback(() => {
+  const handleOpenExportMenu = useCallback(() => {
     if (!id) return;
-    if (Platform.OS !== 'web') {
-      toast.show({ type: 'info', message: Strings.company.requestedOrdersPdfWebOnly });
-      return;
-    }
-    setPdfChoiceOpen(true);
+    setExportMenuOpen(true);
   }, [id]);
 
-  const runPdfExport = useCallback(
+  const runCsvExport = useCallback(
     async (variant: RequestedOrdersPdfVariant) => {
-      if (!id || pdfExporting) return;
-      setPdfChoiceOpen(false);
-      setPdfExporting(true);
+      if (!id || exportBusy) return;
+      setExportMenuOpen(false);
+      setExportBusy(true);
       try {
         const pages = await fetchRequestedOrdersPdfPages(id, variant, useMockData);
         if (pages.length === 0) {
@@ -265,15 +260,19 @@ export default function RequestedItemsListScreen() {
           });
           return;
         }
-        downloadRequestedOrdersFulfillmentPdf({ companyId: id, variant, pages });
-        toast.show({ type: 'success', message: Strings.company.requestedOrdersPdfSuccess });
+        const res = await exportRequestedOrdersCsv(pages, variant, id);
+        if (res.ok) {
+          toast.show({ type: 'success', message: Strings.company.requestedOrdersCsvSuccess });
+        } else {
+          toast.show({ type: 'error', message: Strings.company.requestedOrdersCsvError });
+        }
       } catch {
-        toast.show({ type: 'error', message: Strings.company.requestedOrdersPdfError });
+        toast.show({ type: 'error', message: Strings.company.requestedOrdersCsvError });
       } finally {
-        setPdfExporting(false);
+        setExportBusy(false);
       }
     },
-    [id, pdfExporting, useMockData],
+    [id, exportBusy, useMockData],
   );
 
   const onRowPress = useCallback(
@@ -323,14 +322,14 @@ export default function RequestedItemsListScreen() {
           <IconSymbol name="arrow.clockwise" size={22} color={colors.text} />
         </Pressable>
         <Pressable
-          onPress={handleOpenPdfMenu}
-          disabled={pdfExporting || !id}
+          onPress={handleOpenExportMenu}
+          disabled={exportBusy || !id}
           hitSlop={12}
           style={styles.headerIconBtn}
           accessibilityRole="button"
-          accessibilityLabel={Strings.company.requestedOrdersPdfExportA11y}
+          accessibilityLabel={Strings.company.requestedOrdersExportA11y}
         >
-          {pdfExporting ? (
+          {exportBusy ? (
             <ActivityIndicator size="small" color={colors.tint} />
           ) : (
             <IconSymbol name="square.and.arrow.down" size={22} color={colors.text} />
@@ -355,11 +354,11 @@ export default function RequestedItemsListScreen() {
       colors.text,
       colors.tint,
       colors.background,
-      handleOpenPdfMenu,
+      exportBusy,
+      handleOpenExportMenu,
       handleRefresh,
       id,
       openSearchModal,
-      pdfExporting,
       searchIsActive,
     ],
   );
@@ -463,118 +462,186 @@ export default function RequestedItemsListScreen() {
         />
       )}
 
-      <Modal visible={searchOpen} animationType="slide" transparent onRequestClose={() => setSearchOpen(false)}>
-        <Pressable style={styles.searchOverlay} onPress={() => setSearchOpen(false)} />
-        <ThemedView style={[styles.searchSheet, { paddingBottom: insets.bottom + 16 }]}>
-          <View style={[styles.searchHeader, { borderBottomColor: colors.icon + '25' }]}>
-            <ThemedText type="subtitle">{Strings.company.searchByStudent}</ThemedText>
-            <Pressable onPress={() => setSearchOpen(false)} hitSlop={12}>
-              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
-            </Pressable>
-          </View>
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <ThemedText style={[styles.containsHint, { color: colors.icon }]}>
-              {Strings.company.requestSearchContainsHint}
+      <Modal
+        visible={searchOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setSearchOpen(false)}
+      >
+        <View style={[styles.searchAlertRoot, { paddingBottom: insets.bottom }]}>
+          <Pressable
+            style={[styles.searchAlertBackdrop, StyleSheet.absoluteFillObject]}
+            onPress={() => setSearchOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel={Strings.common.cancel}
+          />
+          <ThemedView
+            style={[
+              styles.searchAlertCard,
+              { backgroundColor: colors.background, borderColor: colors.icon + '22' },
+            ]}
+          >
+            <ThemedText type="subtitle" style={[styles.searchAlertTitle, { color: colors.text }]}>
+              {Strings.company.searchByStudent}
             </ThemedText>
-            <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
-              {Strings.company.requestSearchOrderIdLabel}
-            </ThemedText>
-            <TextInput
-              value={draftOrderId}
-              onChangeText={setDraftOrderId}
-              placeholder={Strings.company.requestSearchOrderIdLabel}
-              placeholderTextColor={colors.icon}
-              style={inputStyle}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="next"
-            />
-            <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
-              {Strings.company.requestSearchClassLabel}
-            </ThemedText>
-            <TextInput
-              value={draftClass}
-              onChangeText={setDraftClass}
-              placeholder={Strings.company.requestSearchClassLabel}
-              placeholderTextColor={colors.icon}
-              style={inputStyle}
-              autoCapitalize="words"
-              returnKeyType="next"
-            />
-            <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
-              {Strings.company.requestSearchStudentLabel}
-            </ThemedText>
-            <TextInput
-              value={draftStudent}
-              onChangeText={setDraftStudent}
-              placeholder={Strings.company.requestSearchStudentLabel}
-              placeholderTextColor={colors.icon}
-              style={inputStyle}
-              autoCapitalize="words"
-              returnKeyType="next"
-            />
-            <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
-              {Strings.company.requestSearchPhoneLabel}
-            </ThemedText>
-            <TextInput
-              value={draftPhone}
-              onChangeText={setDraftPhone}
-              placeholder={Strings.company.requestSearchPhoneLabel}
-              placeholderTextColor={colors.icon}
-              style={inputStyle}
-              keyboardType="phone-pad"
-              returnKeyType="done"
-            />
-            <Pressable
-              onPress={applySearch}
-              style={[styles.primaryBtn, { backgroundColor: colors.tint }]}
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              style={styles.searchAlertScroll}
+              contentContainerStyle={styles.searchAlertScrollContent}
             >
-              <ThemedText style={styles.primaryBtnText}>{Strings.company.requestSearchSubmit}</ThemedText>
-            </Pressable>
-            <Pressable onPress={clearSearchFilters} style={styles.secondaryBtn}>
-              <ThemedText style={{ color: colors.tint, fontWeight: '600' }}>
+              <ThemedText style={[styles.containsHint, { color: colors.icon }]}>
+                {Strings.company.requestSearchContainsHint}
+              </ThemedText>
+              <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
+                {Strings.company.requestSearchOrderIdLabel}
+              </ThemedText>
+              <TextInput
+                value={draftOrderId}
+                onChangeText={setDraftOrderId}
+                placeholder={Strings.company.requestSearchOrderIdLabel}
+                placeholderTextColor={colors.icon}
+                style={inputStyle}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+              />
+              <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
+                {Strings.company.requestSearchClassLabel}
+              </ThemedText>
+              <TextInput
+                value={draftClass}
+                onChangeText={setDraftClass}
+                placeholder={Strings.company.requestSearchClassLabel}
+                placeholderTextColor={colors.icon}
+                style={inputStyle}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+              <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
+                {Strings.company.requestSearchStudentLabel}
+              </ThemedText>
+              <TextInput
+                value={draftStudent}
+                onChangeText={setDraftStudent}
+                placeholder={Strings.company.requestSearchStudentLabel}
+                placeholderTextColor={colors.icon}
+                style={inputStyle}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+              <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
+                {Strings.company.requestSearchPhoneLabel}
+              </ThemedText>
+              <TextInput
+                value={draftPhone}
+                onChangeText={setDraftPhone}
+                placeholder={Strings.company.requestSearchPhoneLabel}
+                placeholderTextColor={colors.icon}
+                style={inputStyle}
+                keyboardType="phone-pad"
+                returnKeyType="done"
+                onSubmitEditing={applySearch}
+              />
+            </ScrollView>
+            <View style={styles.searchAlertActions}>
+              <Pressable
+                onPress={() => setSearchOpen(false)}
+                style={[
+                  styles.searchAlertBtn,
+                  { borderColor: colors.icon + '40', backgroundColor: colors.icon + '10' },
+                ]}
+              >
+                <ThemedText style={{ color: colors.text, fontWeight: '600' }}>
+                  {Strings.common.cancel}
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={applySearch}
+                style={[
+                  styles.searchAlertBtn,
+                  styles.searchAlertBtnPrimary,
+                  { backgroundColor: colors.tint },
+                ]}
+              >
+                <ThemedText style={{ color: '#fff', fontWeight: '700' }}>
+                  {Strings.company.requestSearchSubmit}
+                </ThemedText>
+              </Pressable>
+            </View>
+            <Pressable onPress={clearSearchFilters} style={styles.searchAlertClear}>
+              <ThemedText style={{ color: colors.tint, fontWeight: '600', fontSize: 14 }}>
                 {Strings.company.requestSearchClear}
               </ThemedText>
             </Pressable>
-          </ScrollView>
-        </ThemedView>
+          </ThemedView>
+        </View>
       </Modal>
 
       <Modal
-        visible={pdfChoiceOpen}
+        visible={exportMenuOpen}
         animationType="fade"
         transparent
-        onRequestClose={() => setPdfChoiceOpen(false)}
+        onRequestClose={() => {
+          if (!exportBusy) setExportMenuOpen(false);
+        }}
       >
-        <Pressable style={styles.searchOverlay} onPress={() => setPdfChoiceOpen(false)} />
-        <ThemedView style={[styles.searchSheet, styles.pdfChoiceSheet, { paddingBottom: insets.bottom + 16 }]}>
-          <View style={[styles.searchHeader, { borderBottomColor: colors.icon + '25' }]}>
-            <ThemedText type="subtitle">{Strings.company.requestedOrdersPdfChooseTitle}</ThemedText>
-            <Pressable onPress={() => setPdfChoiceOpen(false)} hitSlop={12}>
-              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
-            </Pressable>
-          </View>
-          <ThemedText style={[styles.pdfChoiceMessage, { color: colors.icon }]}>
-            {Strings.company.requestedOrdersPdfChooseMessage}
-          </ThemedText>
+        <View style={styles.exportPopupRoot}>
           <Pressable
-            onPress={() => void runPdfExport('unfulfilled')}
-            disabled={pdfExporting}
-            style={[styles.primaryBtn, { backgroundColor: colors.tint, opacity: pdfExporting ? 0.6 : 1 }]}
-          >
-            <ThemedText style={styles.primaryBtnText}>{Strings.company.unfulfilledOrders}</ThemedText>
-          </Pressable>
-          <Pressable
-            onPress={() => void runPdfExport('fulfilled')}
-            disabled={pdfExporting}
+            style={styles.exportPopupBackdrop}
+            onPress={() => {
+              if (!exportBusy) setExportMenuOpen(false);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={Strings.common.cancel}
+          />
+          <ThemedView
             style={[
-              styles.primaryBtn,
-              { backgroundColor: colors.tint, marginTop: 10, opacity: pdfExporting ? 0.6 : 1 },
+              styles.exportPopupCard,
+              { backgroundColor: colors.background, borderColor: colors.icon + '25' },
             ]}
           >
-            <ThemedText style={styles.primaryBtnText}>{Strings.company.fulfilledOrders}</ThemedText>
-          </Pressable>
-        </ThemedView>
+            <ThemedText type="defaultSemiBold" style={[styles.exportPopupTitle, { color: colors.text }]}>
+              {Strings.company.requestedOrdersExportTitle}
+            </ThemedText>
+            <ThemedText style={[styles.exportMenuMessage, { color: colors.icon }]}>
+              {Strings.company.requestedOrdersExportMessage}
+            </ThemedText>
+            <Pressable
+              onPress={() => void runCsvExport('unfulfilled')}
+              disabled={exportBusy}
+              style={[
+                styles.exportPopupPrimaryBtn,
+                { backgroundColor: colors.tint, opacity: exportBusy ? 0.6 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.primaryBtnText}>
+                {Strings.company.requestedOrdersExportCsvUnfulfilled}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => void runCsvExport('fulfilled')}
+              disabled={exportBusy}
+              style={[
+                styles.exportPopupPrimaryBtn,
+                { backgroundColor: colors.tint, marginTop: 10, opacity: exportBusy ? 0.6 : 1 },
+              ]}
+            >
+              <ThemedText style={styles.primaryBtnText}>
+                {Strings.company.requestedOrdersExportCsvFulfilled}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (!exportBusy) setExportMenuOpen(false);
+              }}
+              disabled={exportBusy}
+              style={styles.exportPopupCancel}
+            >
+              <ThemedText style={{ color: colors.text, fontWeight: '600' }}>{Strings.common.cancel}</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
       </Modal>
     </ThemedView>
   );
@@ -648,21 +715,97 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     alignItems: 'center',
   },
+  searchAlertRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  searchAlertBackdrop: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  searchAlertCard: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '88%',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+  },
+  searchAlertTitle: {
+    textAlign: 'center',
+    marginBottom: 10,
+    fontSize: 18,
+  },
+  searchAlertScroll: {
+    flexGrow: 0,
+    maxHeight: 420,
+  },
+  searchAlertScrollContent: {
+    paddingBottom: 4,
+  },
+  searchAlertActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 14,
+  },
+  searchAlertBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchAlertBtnPrimary: { borderWidth: 0 },
+  searchAlertClear: {
+    marginTop: 12,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
   searchOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  searchSheet: {
-    maxHeight: '85%',
-    marginTop: 'auto',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  exportPopupRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
-  pdfChoiceSheet: { maxHeight: '55%' },
+  exportPopupBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  exportPopupCard: {
+    zIndex: 1,
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  exportPopupTitle: { fontSize: 18, textAlign: 'center', marginBottom: 10 },
+  exportPopupPrimaryBtn: {
+    marginTop: 14,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  exportPopupCancel: {
+    marginTop: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
   containsHint: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
-  pdfChoiceMessage: { fontSize: 15, lineHeight: 22, marginBottom: 18 },
+  exportMenuMessage: { fontSize: 15, lineHeight: 22, marginBottom: 4, textAlign: 'center' },
   searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -679,12 +822,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     marginBottom: 4,
-  },
-  primaryBtn: {
-    marginTop: 20,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   secondaryBtn: { paddingVertical: 14, alignItems: 'center' },

@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 
+import { ConfirmActionModal } from '@/core/components/confirm-action-modal';
 import { ThemedView } from '@/core/components/themed-view';
 import { ProductListItemCell } from '@/core/components/product-list-item-cell';
 import {
@@ -10,20 +11,35 @@ import {
 } from '@/core/components/product-search-list';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { Colors } from '@/core/constants/theme';
+import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { exportInventoryCsv } from '@/core/services/inventory-export';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
-import { LOW_STOCK_THRESHOLD, type Product } from '@/core/types/product';
+import { LOW_STOCK_THRESHOLD, type InventoryStockFilter, type Product } from '@/core/types/product';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 
 export default function InventoryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { refreshProducts } = useProductCache();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const listRef = useRef<ProductSearchListHandle>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return;
+      void refreshProducts(id);
+    }, [id, refreshProducts]),
+  );
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportConfirmVisible, setExportConfirmVisible] = useState(false);
+  const [inventoryStockFilterActive, setInventoryStockFilterActive] = useState(false);
+
+  const onInventoryStockFilterChange = useCallback((filter: InventoryStockFilter | null) => {
+    setInventoryStockFilterActive(filter != null);
+  }, []);
 
   const renderInventoryCell = useCallback(
     (item: Product) => (
@@ -37,7 +53,7 @@ export default function InventoryScreen() {
     [],
   );
 
-  const handleExportInventory = useCallback(async () => {
+  const runExportInventory = useCallback(async () => {
     if (!id || exporting) return;
     setExporting(true);
     try {
@@ -54,27 +70,49 @@ export default function InventoryScreen() {
       toast.show({ type: 'error', message: Strings.company.inventoryExportError });
     } finally {
       setExporting(false);
+      setExportConfirmVisible(false);
     }
   }, [id, exporting]);
 
   const headerRight = useCallback(
     () => (
-      <Pressable
-        onPress={() => void handleExportInventory()}
-        disabled={exporting || !id}
-        hitSlop={12}
-        accessibilityRole="button"
-        accessibilityLabel={Strings.company.inventoryDownloadExcelA11y}
-        style={styles.headerBtn}
-      >
-        {exporting ? (
-          <ActivityIndicator size="small" color={colors.tint} />
-        ) : (
-          <IconSymbol name="square.and.arrow.down" size={22} color={colors.text} />
-        )}
-      </Pressable>
+      <View style={styles.headerRightRow}>
+        <Pressable
+          onPress={() => setExportConfirmVisible(true)}
+          disabled={exporting || !id}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={Strings.company.inventoryDownloadExcelA11y}
+          style={styles.headerBtn}
+        >
+          {exporting ? (
+            <ActivityIndicator size="small" color={colors.tint} />
+          ) : (
+            <IconSymbol name="square.and.arrow.down" size={22} color={colors.text} />
+          )}
+        </Pressable>
+        <Pressable
+          onPress={() => listRef.current?.openInventoryStockFilter()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={Strings.company.inventoryStockFilterButton}
+          style={styles.headerBtn}
+        >
+          <View style={styles.filterIconWrap}>
+            <IconSymbol name="line.3.horizontal.decrease.circle" size={22} color={colors.tint} />
+            {inventoryStockFilterActive ? (
+              <View
+                style={[
+                  styles.stockFilterActiveDot,
+                  { backgroundColor: '#C62828', borderColor: colors.background },
+                ]}
+              />
+            ) : null}
+          </View>
+        </Pressable>
+      </View>
     ),
-    [colors.text, colors.tint, exporting, handleExportInventory, id],
+    [colors.background, colors.text, colors.tint, exporting, id, inventoryStockFilterActive],
   );
 
   return (
@@ -90,6 +128,9 @@ export default function InventoryScreen() {
           ref={listRef}
           companyId={id}
           showQuantity
+          variant="inventory"
+          hideInventoryQuantityFilterRow
+          onInventoryStockFilterChange={onInventoryStockFilterChange}
           renderItem={renderInventoryCell}
         />
       </View>
@@ -98,6 +139,19 @@ export default function InventoryScreen() {
         visible={selectedProduct != null}
         onClose={() => setSelectedProduct(null)}
       />
+      <ConfirmActionModal
+        visible={exportConfirmVisible}
+        onClose={() => {
+          if (!exporting) setExportConfirmVisible(false);
+        }}
+        title={Strings.company.inventoryExportConfirmTitle}
+        message={Strings.company.inventoryExportConfirmMessage}
+        cancelLabel={Strings.common.cancel}
+        confirmLabel={Strings.company.inventoryExportConfirmDownload}
+        confirmColor={colors.tint}
+        loading={exporting}
+        onConfirm={() => void runExportInventory()}
+      />
     </ThemedView>
   );
 }
@@ -105,5 +159,21 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   listWrap: { flex: 1 },
+  headerRightRow: { flexDirection: 'row', alignItems: 'center' },
   headerBtn: { paddingHorizontal: 8, paddingVertical: 4, minWidth: 40, alignItems: 'center', justifyContent: 'center' },
+  filterIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stockFilterActiveDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 2,
+  },
 });

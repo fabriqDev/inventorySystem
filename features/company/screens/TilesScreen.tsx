@@ -1,13 +1,6 @@
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useMemo, useRef } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/core/components/themed-text';
@@ -75,37 +68,6 @@ const TILE_DISPLAY_ORDER: TileId[] = [
   TileIds.INVENTORY_TRANSFER,
   TileIds.ADD_PRODUCTS,
 ];
-
-const HEADER_GAP = 24;
-
-function HeaderBackButton() {
-  const router = useRouter();
-  const colors = Colors[useColorScheme() ?? 'light'];
-  return (
-    <Pressable
-      onPress={() => router.back()}
-      style={({ pressed }) => [pressed && { opacity: 0.7 }, styles.headerSide]}
-    >
-      <IconSymbol name="chevron.left" size={24} color={colors.text} />
-    </Pressable>
-  );
-}
-
-function HeaderTitleScroll({ title }: { title: string }) {
-  return (
-    <View style={styles.headerTitleWrap}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.headerTitleScroll}
-      >
-        <ThemedText type="subtitle" numberOfLines={1} style={styles.headerTitleText}>
-          {title}
-        </ThemedText>
-      </ScrollView>
-    </View>
-  );
-}
 
 function HeaderRefreshButton({ companyId }: { companyId: string }) {
   const colors = Colors[useColorScheme() ?? 'light'];
@@ -210,10 +172,7 @@ export default function TilesScreen() {
     <ThemedView style={styles.container}>
       <Stack.Screen
         options={{
-          headerLeft: () => <HeaderBackButton />,
-          headerTitle: () => (
-            <HeaderTitleScroll title={selectedCompany?.name ?? 'Company'} />
-          ),
+          title: selectedCompany?.name?.trim() || Strings.common.company,
           headerRight: () => (id ? <HeaderRefreshButton companyId={id} /> : null),
           headerTitleAlign: 'center',
         }}
@@ -263,16 +222,6 @@ const styles = StyleSheet.create({
   tileLabel: { fontSize: 17 },
   tileDesc: { fontSize: 13, lineHeight: 18 },
   headerSide: { padding: 4, marginHorizontal: 4 },
-  headerTitleWrap: {
-    flex: 1,
-    marginHorizontal: HEADER_GAP,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 0,
-    alignSelf: 'stretch',
-  },
-  headerTitleScroll: { flexGrow: 1, justifyContent: 'center', alignItems: 'center' },
-  headerTitleText: { fontSize: 17 },
   headerSpinner: { marginRight: 4 },
   empty: { flex: 1, alignItems: 'center', paddingTop: 60 },
 });

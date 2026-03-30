@@ -77,12 +77,37 @@ export function isLowStockProduct(product: Pick<Product, 'quantity' | 'reserved'
   return available > 0 && available <= LOW_STOCK_THRESHOLD;
 }
 
-/** Inclusive minimum sellable units for “high stock” (inventory quick filter). */
+/** Inclusive minimum sellable units for “high stock” (product search quick filter, non-inventory). */
 export const HIGH_STOCK_THRESHOLD = 30;
 
 /** True when available sellable units are at least {@link HIGH_STOCK_THRESHOLD}. */
 export function isHighStockProduct(product: Pick<Product, 'quantity' | 'reserved'>): boolean {
   return getAvailableStock(product) >= HIGH_STOCK_THRESHOLD;
+}
+
+/**
+ * Stock-only filter for inventory; composed with uniform group (All / Top / …) and search.
+ * Uses **available** quantity (total − reserved). Greater/less are strict; between is inclusive.
+ */
+export type InventoryStockFilter =
+  | { kind: 'unavailable' }
+  | { kind: 'gt'; a: number }
+  | { kind: 'lt'; a: number }
+  | { kind: 'between'; a: number; b: number };
+
+/** Whether a product matches the inventory stock filter (null = no stock filter). */
+export function productMatchesInventoryStockFilter(
+  product: Pick<Product, 'quantity' | 'reserved'>,
+  filter: InventoryStockFilter | null,
+): boolean {
+  if (filter == null) return true;
+  const avail = getAvailableStock(product);
+  if (filter.kind === 'unavailable') return avail === 0;
+  if (filter.kind === 'gt') return avail > filter.a;
+  if (filter.kind === 'lt') return avail < filter.a;
+  const lo = Math.min(filter.a, filter.b);
+  const hi = Math.max(filter.a, filter.b);
+  return avail >= lo && avail <= hi;
 }
 
 export interface ProductListResponse {

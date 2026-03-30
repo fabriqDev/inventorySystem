@@ -9,13 +9,14 @@ import {
   ScrollView,
   SectionList,
   StyleSheet,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
 import type { FetchOrdersOptions } from '@/core/api/orders';
-import { cancelOrder, fetchOrderItems, fetchOrders, fetchOrdersWithItemsForExport } from '@/core/api/orders';
+import { cancelOrder, fetchOrderItems, fetchOrders } from '@/core/api/orders';
 import { ConfirmActionModal } from '@/core/components/confirm-action-modal';
 import { SalesDatePresetPicker, type SalesDatePreset } from '@/core/components/sales-date-preset-picker';
 import { ThemedText } from '@/core/components/themed-text';
@@ -25,10 +26,8 @@ import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
-import { useCompanyConfig } from '@/core/hooks/use-company-config';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice, roundMoney } from '@/core/services/format';
-import { downloadSalesOrdersPdf } from '@/core/services/pdf/sales-export-pdf';
 import { orderItemsToReceiptLineItems } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
@@ -192,60 +191,6 @@ function dateFilterToRangeYmd(fromStr: string, toStr: string): { from: string; t
   return { from: '', to: '' };
 }
 
-/** ISO bounds + label for PDF export (web). */
-function pdfExportRange(
-  preset: SalesDatePreset,
-  customFrom: string,
-  customTo: string,
-): { dateFrom: string; dateTo: string; rangeLabel: string } | null {
-  const now = new Date();
-  if (preset === 'today') {
-    return {
-      dateFrom: startOfDay(now).toISOString(),
-      dateTo: endOfDay(now).toISOString(),
-      rangeLabel: Strings.company.today,
-    };
-  }
-  if (preset === '3days') {
-    const from = new Date(now);
-    from.setDate(now.getDate() - 2);
-    return {
-      dateFrom: startOfDay(from).toISOString(),
-      dateTo: endOfDay(now).toISOString(),
-      rangeLabel: Strings.company.last3Days,
-    };
-  }
-  if (preset === '7days') {
-    const from = new Date(now);
-    from.setDate(now.getDate() - 6);
-    return {
-      dateFrom: startOfDay(from).toISOString(),
-      dateTo: endOfDay(now).toISOString(),
-      rangeLabel: Strings.company.last7Days,
-    };
-  }
-  if (preset === '1month') {
-    const from = new Date(now);
-    from.setDate(now.getDate() - 29);
-    return {
-      dateFrom: startOfDay(from).toISOString(),
-      dateTo: endOfDay(now).toISOString(),
-      rangeLabel: Strings.company.last1Month,
-    };
-  }
-  if (preset === 'custom') {
-    const from = parseFilterDate(customFrom);
-    const to = parseFilterDate(customTo);
-    if (!from || !to) return null;
-    return {
-      dateFrom: startOfDay(from).toISOString(),
-      dateTo: endOfDay(to).toISOString(),
-      rangeLabel: Strings.company.customRange,
-    };
-  }
-  return null;
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function OrdersScreen() {
@@ -256,7 +201,6 @@ export default function OrdersScreen() {
   const insets = useSafeAreaInsets();
   const { useMockData } = useDataSource();
   const { adjustStock } = useProductCache();
-  const { show_requested: showRequested } = useCompanyConfig();
 
   // Filter tabs
   const [filter, setFilter] = useState<FilterValue>('all');
@@ -267,11 +211,9 @@ export default function OrdersScreen() {
   const [draftPreset, setDraftPreset] = useState<SalesDatePreset | null>(null);
   const [draftRange, setDraftRange] = useState({ from: '', to: '' });
 
-  // Web-only PDF export modal
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [exportPreset, setExportPreset] = useState<SalesDatePreset>('today');
-  const [exportRange, setExportRange] = useState({ from: '', to: '' });
-  const [exportLoading, setExportLoading] = useState(false);
+  const [appliedOrderIdFilter, setAppliedOrderIdFilter] = useState('');
+  const [showOrderIdSearchModal, setShowOrderIdSearchModal] = useState(false);
+  const [draftOrderIdSearch, setDraftOrderIdSearch] = useState('');
 
   // Orders data
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
@@ -420,14 +362,20 @@ export default function OrdersScreen() {
   // ── Filter orders client-side ─────────────────────────────────────────────
 
   const filteredOrders = useMemo(() => {
-    if (filter === 'all') return orders;
-    if (filter === 'refund') return orders.filter((o) => o.refund_amount > 0);
-    if (filter === 'cash') return orders.filter((o) => o.payment_type === PaymentType.CASH);
-    if (filter === 'online') return orders.filter(
-      (o) => o.payment_type === PaymentType.ONLINE || o.payment_type === PaymentType.SPLIT
-    );
-    return orders.filter((o) => o.status === filter);
-  }, [orders, filter]);
+    let list: OrderWithItems[];
+    if (filter === 'all') list = orders;
+    else if (filter === 'refund') list = orders.filter((o) => o.refund_amount > 0);
+    else if (filter === 'cash') list = orders.filter((o) => o.payment_type === PaymentType.CASH);
+    else if (filter === 'online') {
+      list = orders.filter(
+        (o) => o.payment_type === PaymentType.ONLINE || o.payment_type === PaymentType.SPLIT,
+      );
+    } else list = orders.filter((o) => o.status === filter);
+
+    const q = appliedOrderIdFilter.trim().replace(/^#/, '').toLowerCase();
+    if (!q) return list;
+    return list.filter((o) => (o.server_order_id ?? '').toLowerCase().includes(q));
+  }, [orders, filter, appliedOrderIdFilter]);
 
   // ── Section data ──────────────────────────────────────────────────────────
 
@@ -540,64 +488,23 @@ export default function OrdersScreen() {
   }, []);
 
   const hasActiveDateFilter = dateFilter.preset !== null;
+  const hasActiveOrderIdSearch = appliedOrderIdFilter.trim().length > 0;
 
-  const exportRangeValid = useMemo(
-    () => pdfExportRange(exportPreset, exportRange.from, exportRange.to) != null,
-    [exportPreset, exportRange.from, exportRange.to],
-  );
+  const openOrderIdSearchModal = useCallback(() => {
+    setDraftOrderIdSearch(appliedOrderIdFilter);
+    setShowOrderIdSearchModal(true);
+  }, [appliedOrderIdFilter]);
 
-  const openExportModal = useCallback(() => {
-    setExportPreset('today');
-    setExportRange({ from: '', to: '' });
-    setShowExportModal(true);
+  const applyOrderIdSearch = useCallback(() => {
+    setAppliedOrderIdFilter(draftOrderIdSearch.trim().replace(/^#/, ''));
+    setShowOrderIdSearchModal(false);
+  }, [draftOrderIdSearch]);
+
+  const clearOrderIdSearchFilter = useCallback(() => {
+    setDraftOrderIdSearch('');
+    setAppliedOrderIdFilter('');
+    setShowOrderIdSearchModal(false);
   }, []);
-
-  const onSelectExportPreset = useCallback((p: SalesDatePreset) => {
-    setExportPreset(p);
-    if (p !== 'custom') setExportRange({ from: '', to: '' });
-  }, []);
-
-  const onExportCalendarDay = useCallback((day: { dateString: string }) => {
-    const d = day.dateString;
-    setExportRange(({ from, to }) => {
-      if (!from || to) return { from: d, to: '' };
-      if (d < from) return { from: d, to: from };
-      return { from, to: d };
-    });
-  }, []);
-
-  const handleExportPdf = useCallback(async () => {
-    const range = pdfExportRange(exportPreset, exportRange.from, exportRange.to);
-    if (!range) {
-      toast.show({ type: 'error', message: Strings.company.exportPdfCustomInvalid });
-      return;
-    }
-    setExportLoading(true);
-    try {
-      const orders = await fetchOrdersWithItemsForExport(
-        id,
-        { dateFrom: range.dateFrom, dateTo: range.dateTo },
-        useMockData,
-      );
-      if (!orders.length) {
-        toast.show({ type: 'info', message: Strings.company.exportPdfEmpty });
-        return;
-      }
-      downloadSalesOrdersPdf({
-        companyId: id,
-        rangeLabel: range.rangeLabel,
-        dateFromIso: range.dateFrom,
-        dateToIso: range.dateTo,
-        orders,
-      });
-      toast.show({ type: 'success', message: Strings.company.exportPdfSuccess });
-      setShowExportModal(false);
-    } catch {
-      toast.show({ type: 'error', message: Strings.company.exportPdfError });
-    } finally {
-      if (mountedRef.current) setExportLoading(false);
-    }
-  }, [id, useMockData, exportPreset, exportRange.from, exportRange.to]);
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
@@ -700,29 +607,6 @@ export default function OrdersScreen() {
           title: Strings.company.orders,
           headerRight: () => (
             <View style={styles.headerRightRow}>
-              {Platform.OS === 'web' && (
-                <Pressable
-                  onPress={openExportModal}
-                  style={styles.headerExportBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel={Strings.company.exportPdf}
-                >
-                  <ThemedText style={[styles.headerExportText, { color: colors.tint }]}>
-                    {Strings.company.exportPdf}
-                  </ThemedText>
-                </Pressable>
-              )}
-              {showRequested ? (
-                <Pressable
-                  onPress={() => router.push(`/company/${id}/requested-items` as any)}
-                  hitSlop={10}
-                  style={styles.headerIconBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel={Strings.company.ordersRequestedItemsA11y}
-                >
-                  <IconSymbol name="list.bullet.clipboard.fill" size={22} color={colors.tint} />
-                </Pressable>
-              ) : null}
               <Pressable onPress={handleRefresh} hitSlop={10} style={styles.headerIconBtn}>
                 <IconSymbol name="arrow.clockwise" size={22} color={colors.icon} />
               </Pressable>
@@ -735,6 +619,25 @@ export default function OrdersScreen() {
                 {hasActiveDateFilter && (
                   <View style={[styles.filterActiveDot, { backgroundColor: DATE_FILTER_ACTIVE_BADGE }]} />
                 )}
+              </Pressable>
+              <Pressable
+                onPress={openOrderIdSearchModal}
+                hitSlop={10}
+                style={styles.headerIconBtn}
+                accessibilityRole="button"
+                accessibilityLabel={Strings.company.ordersSearchOrderIdA11y}
+              >
+                <View style={styles.searchIconWrap}>
+                  <IconSymbol name="magnifyingglass" size={22} color={colors.icon} />
+                  {hasActiveOrderIdSearch ? (
+                    <View
+                      style={[
+                        styles.searchFilterActiveDot,
+                        { backgroundColor: colors.tint, borderColor: colors.background },
+                      ]}
+                    />
+                  ) : null}
+                </View>
               </Pressable>
             </View>
           ),
@@ -1097,67 +1000,65 @@ export default function OrdersScreen() {
         </ThemedView>
       </Modal>
 
-      {/* Web-only: export sales PDF */}
       <Modal
-        visible={showExportModal}
-        animationType="slide"
+        visible={showOrderIdSearchModal}
+        animationType="fade"
         transparent
-        onRequestClose={() => !exportLoading && setShowExportModal(false)}
+        onRequestClose={() => setShowOrderIdSearchModal(false)}
       >
-        <Pressable style={styles.dateFilterOverlay} onPress={() => !exportLoading && setShowExportModal(false)} />
-        <ThemedView style={[styles.dateFilterSheet, { paddingBottom: insets.bottom + 16 }]}>
-          <View style={[styles.modalHeader, { borderBottomColor: colors.icon + '25' }]}>
-            <ThemedText type="subtitle" style={styles.modalTitle}>
-              {Strings.company.exportPdfTitle}
-            </ThemedText>
-            <Pressable
-              onPress={() => !exportLoading && setShowExportModal(false)}
-              hitSlop={12}
-              style={styles.modalCloseBtn}
-            >
-              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
-            </Pressable>
-          </View>
-
-          <ScrollView
-            style={styles.dateFilterScroll}
-            contentContainerStyle={styles.dateFilterBody}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+        <View style={styles.orderIdAlertRoot}>
+          <Pressable
+            style={[styles.orderIdAlertBackdrop, StyleSheet.absoluteFillObject]}
+            onPress={() => setShowOrderIdSearchModal(false)}
+            accessibilityRole="button"
+            accessibilityLabel={Strings.common.cancel}
+          />
+          <ThemedView
+            style={[
+              styles.orderIdAlertCard,
+              { backgroundColor: colors.background, borderColor: colors.icon + '22' },
+            ]}
           >
-            <SalesDatePresetPicker
-              activePreset={exportPreset}
-              onSelectPreset={(p) => !exportLoading && onSelectExportPreset(p)}
-              rangeFrom={exportRange.from}
-              rangeTo={exportRange.to}
-              onDayPress={onExportCalendarDay}
-              tint={colors.tint}
-              colors={{ text: colors.text, icon: colors.icon, background: colors.background }}
-              disabled={exportLoading}
+            <ThemedText type="subtitle" style={[styles.orderIdAlertTitle, { color: colors.text }]}>
+              {Strings.company.ordersSearchOrderIdModalTitle}
+            </ThemedText>
+            <TextInput
+              style={[
+                styles.orderIdModalInput,
+                { borderColor: colors.icon + '30', color: colors.text },
+              ]}
+              placeholder={Strings.company.ordersSearchOrderIdPlaceholder}
+              placeholderTextColor={colors.icon}
+              value={draftOrderIdSearch}
+              onChangeText={setDraftOrderIdSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => applyOrderIdSearch()}
             />
-
-            <View style={styles.dateFilterActions}>
+            <View style={styles.orderIdAlertActions}>
               <Pressable
-                onPress={handleExportPdf}
-                disabled={!exportRangeValid || exportLoading}
-                style={[
-                  styles.dateFilterBtn,
-                  {
-                    backgroundColor: !exportRangeValid || exportLoading ? colors.icon + '35' : colors.tint,
-                    borderColor: !exportRangeValid || exportLoading ? 'transparent' : colors.tint,
-                    flex: 1,
-                  },
-                ]}
+                onPress={() => setShowOrderIdSearchModal(false)}
+                style={[styles.orderIdAlertBtn, { borderColor: colors.icon + '40', backgroundColor: colors.icon + '10' }]}
               >
-                {exportLoading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <ThemedText style={{ color: '#fff', fontWeight: '600' }}>{Strings.company.exportPdfDownload}</ThemedText>
-                )}
+                <ThemedText style={{ color: colors.text, fontWeight: '600' }}>{Strings.common.cancel}</ThemedText>
+              </Pressable>
+              <Pressable
+                onPress={applyOrderIdSearch}
+                style={[styles.orderIdAlertBtn, styles.orderIdAlertBtnPrimary, { backgroundColor: colors.tint }]}
+              >
+                <ThemedText style={{ color: '#fff', fontWeight: '700' }}>
+                  {Strings.company.ordersSearchOrderIdButton}
+                </ThemedText>
               </Pressable>
             </View>
-          </ScrollView>
-        </ThemedView>
+            <Pressable onPress={clearOrderIdSearchFilter} style={styles.orderIdAlertClear}>
+              <ThemedText style={{ color: '#C62828', fontWeight: '600', fontSize: 14 }}>
+                {Strings.company.requestedOrdersClearSearch}
+              </ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
       </Modal>
     </ThemedView>
   );
@@ -1170,9 +1071,69 @@ const styles = StyleSheet.create({
 
   // Header buttons
   headerRightRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 4 },
-  headerExportBtn: { paddingVertical: 6, paddingHorizontal: 8, marginRight: 2 },
-  headerExportText: { fontSize: 14, fontWeight: '600' },
   headerIconBtn: { padding: 4 },
+  searchIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchFilterActiveDot: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 2,
+  },
+  orderIdAlertRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  orderIdAlertBackdrop: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  orderIdAlertCard: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 20,
+  },
+  orderIdAlertTitle: {
+    textAlign: 'center',
+    marginBottom: 14,
+    fontSize: 18,
+  },
+  orderIdModalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+  orderIdAlertActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  orderIdAlertBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orderIdAlertBtnPrimary: { borderWidth: 0 },
+  orderIdAlertClear: {
+    marginTop: 14,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
   filterIconBtn: { padding: 4, position: 'relative' },
   filterActiveDot: {
     position: 'absolute',

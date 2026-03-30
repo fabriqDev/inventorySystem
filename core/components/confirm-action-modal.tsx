@@ -43,9 +43,13 @@ export function ConfirmActionModal({
     return null;
   }
 
+  const dismiss = () => {
+    if (!loading) onClose();
+  };
+
   const body = (
-    <Pressable style={styles.confirmOverlay} onPress={onClose}>
-      <View style={[styles.confirmCard, { backgroundColor: colors.background }]}>
+    <Pressable style={styles.confirmOverlay} onPress={dismiss}>
+      <Pressable onPress={() => {}} style={[styles.confirmCard, { backgroundColor: colors.background }]}>
         <ThemedText type="defaultSemiBold" style={[styles.confirmTitle, { color: colors.text }]}>
           {title}
         </ThemedText>
@@ -54,7 +58,7 @@ export function ConfirmActionModal({
         ) : null}
         <View style={styles.confirmActions}>
           <Pressable
-            onPress={onClose}
+            onPress={dismiss}
             disabled={loading}
             style={[
               styles.confirmBtn,
@@ -80,7 +84,7 @@ export function ConfirmActionModal({
             )}
           </Pressable>
         </View>
-      </View>
+      </Pressable>
     </Pressable>
   );
 
@@ -93,7 +97,7 @@ export function ConfirmActionModal({
   }
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <Modal visible animationType="fade" transparent onRequestClose={dismiss}>
       {body}
     </Modal>
   );

@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  ScrollView,
   StyleSheet,
   TextInput,
   useWindowDimensions,
@@ -20,6 +19,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { fetchProducts, PRODUCTS_PAGE_SIZE } from '@/core/api/products';
+import { InventoryStockFilterModal } from '@/core/components/inventory-stock-filter-modal';
 import { ProductListItemCell } from '@/core/components/product-list-item-cell';
 import { ThemedText } from '@/core/components/themed-text';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -28,47 +28,31 @@ import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { Strings } from '@/core/strings';
+import { ProductQuickFilterChips } from '@/core/components/product-quick-filter-chips';
 import {
-  getAvailableStock,
-  isHighStockProduct,
-  isLowStockProduct,
+  productMatchesInventoryStockFilter,
   UNIFORM_GROUP_TAB_ORDER,
   UniformGroup,
+  type InventoryStockFilter,
   type Product,
   type UniformGroupValue,
 } from '@/core/types/product';
+import {
+  applyProductQuickFilter,
+  QUICK_FILTER_HIGH_STOCK,
+  QUICK_FILTER_LOW_STOCK,
+  QUICK_FILTER_UNAVAILABLE,
+  type ProductQuickFilter,
+} from '@/core/types/product-quick-filter';
 
-const QUICK_FILTER_LOW_STOCK = 'low_stock' as const;
-const QUICK_FILTER_HIGH_STOCK = 'high_stock' as const;
-const QUICK_FILTER_UNAVAILABLE = 'unavailable' as const;
-export type ProductQuickFilter =
-  | 'all'
-  | UniformGroupValue
-  | typeof QUICK_FILTER_LOW_STOCK
-  | typeof QUICK_FILTER_HIGH_STOCK
-  | typeof QUICK_FILTER_UNAVAILABLE;
-
-/** Apply the same chip filters as the list (on an already search-filtered cached list). */
-export function applyProductQuickFilter(
-  products: Product[],
-  quickFilter: ProductQuickFilter,
-): Product[] {
-  if (quickFilter === 'all') return products;
-  if (quickFilter === QUICK_FILTER_UNAVAILABLE) {
-    return products.filter((p) => getAvailableStock(p) === 0);
-  }
-  if (quickFilter === QUICK_FILTER_LOW_STOCK) {
-    return products.filter((p) => isLowStockProduct(p));
-  }
-  if (quickFilter === QUICK_FILTER_HIGH_STOCK) {
-    return products.filter((p) => isHighStockProduct(p));
-  }
-  return products.filter((p) => p.uniform_group === quickFilter);
-}
+export type { ProductQuickFilter };
+export { applyProductQuickFilter };
 
 export type ProductSearchListHandle = {
   /** Company cache only: current search + quick filter. Ignores “Search backend” pagination results. */
   getProductsForExport: () => Product[];
+  /** `variant="inventory"` only: opens the quantity / stock filter popup. */
+  openInventoryStockFilter: () => void;
 };
 
 function uniformGroupFilterLabel(g: UniformGroupValue): string {
@@ -94,6 +78,36 @@ const PRODUCT_QUICK_FILTER_TABS: { value: ProductQuickFilter; label: string }[] 
   { value: QUICK_FILTER_UNAVAILABLE, label: Strings.company.productSearchNotAvailable },
 ];
 
+/** Inventory: category chips only; stock rules use {@link InventoryStockFilterModal}. */
+export const INVENTORY_UNIFORM_TABS: { value: ProductQuickFilter; label: string }[] = [
+  { value: 'all', label: Strings.company.all },
+  ...UNIFORM_GROUP_TAB_ORDER.map((g) => ({ value: g, label: uniformGroupFilterLabel(g) })),
+];
+
+function applyUniformOnlyFilter(products: Product[], quickFilter: ProductQuickFilter): Product[] {
+  if (quickFilter === 'all') return products;
+  if (
+    quickFilter === QUICK_FILTER_LOW_STOCK ||
+    quickFilter === QUICK_FILTER_HIGH_STOCK ||
+    quickFilter === QUICK_FILTER_UNAVAILABLE
+  ) {
+    return products;
+  }
+  return products.filter((p) => p.uniform_group === quickFilter);
+}
+
+function describeInventoryStockFilter(f: InventoryStockFilter | null): string {
+  if (f == null) return Strings.company.inventoryStockFilterAll;
+  if (f.kind === 'unavailable') return Strings.company.inventoryStockFilterUnavailable;
+  if (f.kind === 'gt') return `${Strings.company.inventoryStockFilterGreaterThan} ${f.a}`;
+  if (f.kind === 'lt') return `${Strings.company.inventoryStockFilterLessThan} ${f.a}`;
+  const lo = Math.min(f.a, f.b);
+  const hi = Math.max(f.a, f.b);
+  return `${Strings.company.inventoryStockFilterBetween} ${lo} ${Strings.company.inventoryStockFilterAnd} ${hi}`;
+}
+
+export type ProductSearchListVariant = 'default' | 'inventory';
+
 /** Same product name grouped together; within a name, sort by size; stable tie-breaker. */
 function compareProductsByNameThenSize(a: Product, b: Product): number {
   const nameCmp = (a.name ?? '').localeCompare(b.name ?? '', undefined, {
@@ -116,13 +130,32 @@ interface Props {
   showQuantity?: boolean;
   /** When provided, used instead of the default row (e.g. inventory passes the same cell with `lowStockThreshold`). */
   renderItem?: (item: Product) => React.ReactNode;
+  /**
+   * `inventory`: hide low/high/unavailable chips; stock filtering is a popup that composes with category + search.
+   */
+  variant?: ProductSearchListVariant;
+  /**
+   * Inventory only: hide the quantity-filter row under search (e.g. trigger from header via
+   * {@link ProductSearchListHandle.openInventoryStockFilter}).
+   */
+  hideInventoryQuantityFilterRow?: boolean;
+  /** Inventory only: called when the quantity/stock filter is applied or cleared. */
+  onInventoryStockFilterChange?: (filter: InventoryStockFilter | null) => void;
 }
 
 /** Screens wider than this (in dp/pt) get a 2-column grid; phones stay single-column. */
 const TWO_COLUMN_BREAKPOINT = 600;
 
 export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(function ProductSearchList(
-  { companyId, onSelectProduct, showQuantity, renderItem: customRenderItem },
+  {
+    companyId,
+    onSelectProduct,
+    showQuantity,
+    renderItem: customRenderItem,
+    variant = 'default',
+    hideInventoryQuantityFilterRow = false,
+    onInventoryStockFilterChange,
+  },
   ref,
 ) {
   const colorScheme = useColorScheme();
@@ -139,8 +172,10 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
   } = useProductCache();
 
   const [search, setSearch] = useState('');
-  /** Mutually exclusive: all, one uniform group, low stock, or out of stock only. */
+  /** Mutually exclusive: all, one uniform group, and (default variant only) stock quick filters. */
   const [quickFilter, setQuickFilter] = useState<ProductQuickFilter>('all');
+  const [inventoryStockFilter, setInventoryStockFilter] = useState<InventoryStockFilter | null>(null);
+  const [stockFilterModalVisible, setStockFilterModalVisible] = useState(false);
   const [backendResults, setBackendResults] = useState<Product[] | null>(null);
   const [backendLoading, setBackendLoading] = useState(false);
   const [backendLoadingMore, setBackendLoadingMore] = useState(false);
@@ -154,7 +189,13 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
 
   useEffect(() => {
     setQuickFilter('all');
+    setInventoryStockFilter(null);
   }, [companyId]);
+
+  useEffect(() => {
+    if (variant !== 'inventory') return;
+    onInventoryStockFilterChange?.(inventoryStockFilter);
+  }, [variant, inventoryStockFilter, onInventoryStockFilterChange]);
 
   const localFiltered = useMemo(
     () => filterProducts(companyId, search),
@@ -164,16 +205,28 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
   useImperativeHandle(
     ref,
     () => ({
-      getProductsForExport: () => applyProductQuickFilter(localFiltered, quickFilter),
+      getProductsForExport: () => {
+        if (variant === 'inventory') {
+          const u = applyUniformOnlyFilter(localFiltered, quickFilter);
+          return u.filter((p) => productMatchesInventoryStockFilter(p, inventoryStockFilter));
+        }
+        return applyProductQuickFilter(localFiltered, quickFilter);
+      },
+      openInventoryStockFilter: () => {
+        if (variant === 'inventory') setStockFilterModalVisible(true);
+      },
     }),
-    [localFiltered, quickFilter],
+    [localFiltered, quickFilter, variant, inventoryStockFilter],
   );
 
   const rawDisplayProducts = backendResults !== null ? backendResults : localFiltered;
-  const filteredProducts = useMemo(
-    () => applyProductQuickFilter(rawDisplayProducts, quickFilter),
-    [rawDisplayProducts, quickFilter],
-  );
+  const filteredProducts = useMemo(() => {
+    if (variant === 'inventory') {
+      const uniformFiltered = applyUniformOnlyFilter(rawDisplayProducts, quickFilter);
+      return uniformFiltered.filter((p) => productMatchesInventoryStockFilter(p, inventoryStockFilter));
+    }
+    return applyProductQuickFilter(rawDisplayProducts, quickFilter);
+  }, [rawDisplayProducts, quickFilter, variant, inventoryStockFilter]);
 
   const displayProducts = useMemo(() => {
     if (filteredProducts.length <= 1) return filteredProducts;
@@ -273,48 +326,38 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        bounces={false}
-        contentContainerStyle={styles.filtersContent}
-        style={styles.filtersScroll}
-      >
-        {PRODUCT_QUICK_FILTER_TABS.map((tab, chipIndex) => {
-          const active = quickFilter === tab.value;
-          const isUnavailableTab = tab.value === QUICK_FILTER_UNAVAILABLE;
-          const isLowStockTab = tab.value === QUICK_FILTER_LOW_STOCK;
-          const isHighStockTab = tab.value === QUICK_FILTER_HIGH_STOCK;
-          /** Red for low / out of stock; green for high stock; default tint otherwise. */
-          const activeBg = isUnavailableTab || isLowStockTab
-            ? '#C62828'
-            : isHighStockTab
-              ? '#2E7D32'
-              : colors.tint;
-          return (
-            <Pressable
-              key={tab.value}
-              onPress={() => setQuickFilter(tab.value)}
-              style={({ pressed }) => [
-                styles.chip,
-                chipIndex < PRODUCT_QUICK_FILTER_TABS.length - 1 && styles.chipSpacing,
-                active
-                  ? { backgroundColor: activeBg }
-                  : { backgroundColor: colors.icon + '12', borderWidth: 1, borderColor: colors.icon + '22' },
-                pressed && { opacity: 0.85 },
-              ]}
-            >
-              <ThemedText
-                numberOfLines={1}
-                includeFontPadding={false}
-                style={[styles.chipText, active ? { color: '#fff' } : { color: colors.text }]}
-              >
-                {tab.label}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {variant === 'inventory' && !hideInventoryQuantityFilterRow ? (
+        <Pressable
+          onPress={() => setStockFilterModalVisible(true)}
+          style={({ pressed }) => [
+            styles.stockFilterRow,
+            { borderColor: colors.icon + '40', backgroundColor: colors.icon + '0c' },
+            pressed && { opacity: 0.88 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={Strings.company.inventoryStockFilterButton}
+        >
+          <IconSymbol name="line.3.horizontal.decrease.circle" size={22} color={colors.tint} />
+          <View style={styles.stockFilterRowText}>
+            <ThemedText style={[styles.stockFilterTitle, { color: colors.text }]}>
+              {Strings.company.inventoryStockFilterButton}
+            </ThemedText>
+            <ThemedText style={[styles.stockFilterSubtitle, { color: colors.icon }]} numberOfLines={1}>
+              {describeInventoryStockFilter(inventoryStockFilter)}
+            </ThemedText>
+          </View>
+          <IconSymbol name="chevron.right" size={20} color={colors.icon} />
+        </Pressable>
+      ) : null}
+
+      <View style={styles.quickFiltersWrap}>
+        <ProductQuickFilterChips
+          tabs={variant === 'inventory' ? INVENTORY_UNIFORM_TABS : PRODUCT_QUICK_FILTER_TABS}
+          value={quickFilter}
+          onChange={setQuickFilter}
+          variant={variant}
+        />
+      </View>
 
       {cacheLoading(companyId) && !isCached(companyId) ? (
         <View style={styles.center}>
@@ -344,6 +387,7 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
         <>
           <FlatList
             key={`list-${numColumns}`}
+            style={styles.listFlex}
             data={displayProducts}
             keyExtractor={(item) => item.article_code}
             renderItem={renderItem}
@@ -362,6 +406,15 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
           />
         </>
       )}
+
+      {variant === 'inventory' ? (
+        <InventoryStockFilterModal
+          visible={stockFilterModalVisible}
+          onClose={() => setStockFilterModalVisible(false)}
+          appliedFilter={inventoryStockFilter}
+          onApply={(f) => setInventoryStockFilter(f)}
+        />
+      ) : null}
     </View>
   );
 });
@@ -381,29 +434,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   searchInput: { flex: 1, fontSize: 15, height: '100%' },
-  filtersScroll: {
-    flexGrow: 0,
-    flexShrink: 0,
-    width: '100%',
-  },
-  filtersContent: {
+  quickFiltersWrap: { flexShrink: 0, marginBottom: 4, zIndex: 1 },
+  /** Occupy remaining space so the list does not overlap chips above. */
+  listFlex: { flex: 1 },
+  stockFilterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
-    paddingRight: 20,
-  },
-  chip: {
-    flexShrink: 0,
-    flexGrow: 0,
+    marginHorizontal: 16,
+    marginBottom: 8,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 12,
   },
-  chipSpacing: { marginRight: 8 },
-  chipText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  stockFilterRowText: { flex: 1, minWidth: 0 },
+  stockFilterTitle: { fontSize: 15, fontWeight: '700' },
+  stockFilterSubtitle: { fontSize: 13, marginTop: 2 },
   list: { paddingHorizontal: 16, paddingBottom: 24 },
   separator: { height: 10 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },

@@ -35,6 +35,8 @@ export const Strings = {
     addItem: 'Add item',
     returnItem: 'Return item',
     checkout: 'Checkout',
+    /** Header back control (a11y). */
+    goBack: 'Go back',
     company: 'Company',
     redirecting: 'Redirecting...',
     creatingOrder: 'Creating order…',
@@ -57,9 +59,32 @@ export const Strings = {
     inventoryDescription: 'View products & stock levels',
     /** Inventory header: download CSV (opens in Excel). */
     inventoryDownloadExcelA11y: 'Download inventory spreadsheet',
+    /** Inventory export confirmation dialog title. */
+    inventoryExportConfirmTitle: 'Download inventory spreadsheet?',
+    /**
+     * Inventory export confirmation body: explains that the CSV reflects current list filters.
+     */
+    inventoryExportConfirmMessage:
+      'The spreadsheet will include only the products currently shown on this screen—matching your search, category selection (All, Top, Bottom, …), and quantity filter if you set one. Confirm to download.',
+    inventoryExportConfirmDownload: 'Download',
     inventoryExportEmpty: 'No products to export.',
     inventoryExportSuccess: 'Inventory spreadsheet ready.',
     inventoryExportError: 'Could not export inventory. Try again.',
+    /** Inventory: opens stock quantity filter popup. */
+    inventoryStockFilterButton: 'Quantity filter',
+    inventoryStockFilterTitle: 'Filter by stock',
+    inventoryStockFilterAll: 'All stock levels',
+    inventoryStockFilterUnavailable: 'Not available',
+    /** Second block: numeric filters on available quantity. */
+    inventoryStockFilterByQuantity: 'Available quantity',
+    inventoryStockFilterGreaterThan: 'Greater than',
+    inventoryStockFilterLessThan: 'Less than',
+    inventoryStockFilterBetween: 'Between',
+    inventoryStockFilterAnd: 'and',
+    inventoryStockFilterApply: 'Apply',
+    inventoryStockFilterInvalid: 'Enter valid whole numbers (0 or more).',
+    /** Shown under inputs on inventory stock popup. */
+    inventoryStockFilterCombineHint: 'Works together with category (Top, Bottom…) and search.',
     salesDescription: 'View past orders & revenue',
     createOrderDescription: 'Start a new order',
     transferDescription: 'Transfer stock between companies',
@@ -88,6 +113,12 @@ export const Strings = {
     cashTab: 'Cash',
     onlineTab: 'Online',
     noOrdersFound: 'No orders found',
+    /** Sales list: filter loaded orders by order id substring (case-insensitive). */
+    ordersSearchOrderIdPlaceholder: 'Enter order ID',
+    ordersSearchOrderIdModalTitle: 'Find order by ID',
+    /** Sales order-ID dialog primary action (not "Apply filter"). */
+    ordersSearchOrderIdButton: 'Search',
+    ordersSearchOrderIdA11y: 'Search orders by order ID',
     uniformGroupTop: 'Top',
     uniformGroupBottom: 'Bottom',
     uniformGroupAccessory: 'Accessory',
@@ -239,13 +270,17 @@ export const Strings = {
     requestedOrdersPdfItemsSection: 'Items to fulfill',
     requestedOrdersPdfItemsSectionFulfilled: 'Fulfilled items',
     requestedOrdersPdfQuantityLabel: 'Quantity',
-    requestedOrdersPdfExportA11y: 'Download requested orders as PDF',
-    requestedOrdersPdfChooseTitle: 'Export PDF',
-    requestedOrdersPdfChooseMessage: 'Which requests should this file include?',
+    requestedOrdersExportA11y: 'Export requested orders as CSV',
+    requestedOrdersExportTitle: 'Export',
+    requestedOrdersExportMessage: 'Download a CSV spreadsheet. Choose which requests to include.',
+    requestedOrdersExportCsvUnfulfilled: 'Unfulfilled requests',
+    requestedOrdersExportCsvFulfilled: 'Fulfilled requests',
     requestedOrdersPdfSuccess: 'PDF downloaded.',
+    requestedOrdersCsvSuccess: 'CSV downloaded.',
     requestedOrdersPdfEmptyUnfulfilled: 'No unfulfilled requested orders to export.',
     requestedOrdersPdfEmptyFulfilled: 'No fulfilled requested orders to export.',
     requestedOrdersPdfError: 'Could not export PDF. Try again.',
+    requestedOrdersCsvError: 'Could not export CSV. Try again.',
     requestedOrdersPdfWebOnly: 'PDF download is available in the web app.',
     requestLineDetails: 'Request details',
     student: 'Student',
