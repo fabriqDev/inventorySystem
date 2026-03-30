@@ -9,14 +9,16 @@ import { Platform } from 'react-native';
 
 import { BackendError, toBackendError, toUserMessage } from '@/core/backend/errors';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
-import { OrderItemRequestField, type RequestItemSearchPayload } from '@/core/types/requested-orders';
 import { toast } from '@/core/services/toast';
 import { OrderStatus, PaymentProvider, PaymentType, parseOrderStatus } from '@/core/types/order';
 import type { OrderWithItems } from '@/core/types/order';
 import { parseUniformGroup, type Product } from '@/core/types/product';
-import type {
-  RequestedOrderLine,
-  RequestedOrderListRow,
+import {
+  OrderItemRequestField,
+  ORDER_ID_FULL_UUID_RE,
+  type RequestItemSearchPayload,
+  type RequestedOrderLine,
+  type RequestedOrderListRow,
 } from '@/core/types/requested-orders';
 import { TileIds } from '@/core/types/tiles';
 import type {
@@ -819,13 +821,25 @@ function buildOrderItemRequestSearchAnd(
 }
 
 /** Builds Hasura `order_history_bool_exp` for requested-orders list (tabs + optional field filters). */
+
+/** Hasura `uuid_comparison_exp` has no `_cast`; only full UUID `_eq` is supported here. */
+function buildOrderIdSearchClause(trimmed: string): Record<string, unknown> | null {
+  if (!trimmed) return null;
+  if (!ORDER_ID_FULL_UUID_RE.test(trimmed)) return null;
+  return { order_id: { _eq: trimmed } };
+}
+
 function buildRequestedOrdersWhere(
   companyId: string,
   tab: FulfillmentTabArg,
   searchFilters: RequestItemSearchPayload,
+  orderIdSearch?: string,
 ): Record<string, unknown> {
   const requestLine = { transaction_type: { _eq: 'request' } };
   const searchAnd = buildOrderItemRequestSearchAnd(searchFilters);
+  const orderIdClause = buildOrderIdSearchClause(
+    (orderIdSearch ?? '').trim().replace(/^#/, ''),
+  );
 
   const pendingReqFilter =
     searchAnd.length > 0
@@ -845,31 +859,27 @@ function buildRequestedOrdersWhere(
         }
       : { order_item_requests: { fulfillment_status: { _eq: 'fulfilled' } } };
 
+  const baseAnd = (inner: Record<string, unknown>[]): Record<string, unknown> => ({
+    _and: [...(orderIdClause ? [orderIdClause] : []), { company_id: { _eq: companyId } }, ...inner],
+  });
+
   if (tab === 'unfulfilled') {
-    return {
-      _and: [
-        { company_id: { _eq: companyId } },
-        { order_items: { _and: [requestLine, pendingReqFilter] } },
-      ],
-    };
+    return baseAnd([{ order_items: { _and: [requestLine, pendingReqFilter] } }]);
   }
 
-  return {
-    _and: [
-      { company_id: { _eq: companyId } },
-      { order_items: { _and: [requestLine, fulfilledReqFilter] } },
-      {
-        _not: {
-          order_items: {
-            _and: [
-              requestLine,
-              { order_item_requests: { fulfillment_status: { _eq: 'pending' } } },
-            ],
-          },
+  return baseAnd([
+    { order_items: { _and: [requestLine, fulfilledReqFilter] } },
+    {
+      _not: {
+        order_items: {
+          _and: [
+            requestLine,
+            { order_item_requests: { fulfillment_status: { _eq: 'pending' } } },
+          ],
         },
       },
-    ],
-  };
+    },
+  ]);
 }
 
 function mapRequestedOrderListRow(row: any): RequestedOrderListRow {
@@ -1245,9 +1255,9 @@ const data: DataProvider = {
   },
 
   async fetchRequestedOrders(companyId, opts) {
-    const { page = 1, limit = 50, tab, searchFilters = {} } = opts;
+    const { page = 1, limit = 50, tab, searchFilters = {}, orderIdSearch } = opts;
     const offset = (page - 1) * limit;
-    const where = buildRequestedOrdersWhere(companyId, tab, searchFilters);
+    const where = buildRequestedOrdersWhere(companyId, tab, searchFilters, orderIdSearch);
     const d = await gqlRequest<any>({
       query: REQUEST_ORDERS_BUNDLED_QUERY,
       variables: { where, limit, offset },

@@ -93,10 +93,12 @@ export const Strings = {
     uniformGroupAccessory: 'Accessory',
     uniformGroupOveralls: 'Overalls',
     uniformGroupGeneric: 'Generic',
-    /** Product search quick filter: some stock left but below app low-stock threshold (see LOW_STOCK_THRESHOLD). */
+    /** Product search quick filter: some stock left but at or below app low-stock threshold (see LOW_STOCK_THRESHOLD). */
     productSearchLowStock: 'Low stock',
     /** Product search quick filter: available stock is 0. */
     productSearchNotAvailable: 'Not available',
+    /** Product search quick filter: available stock ≥ HIGH_STOCK_THRESHOLD (see core/types/product). */
+    productSearchHighStock: 'High stock',
     today: 'Today',
     yesterday: 'Yesterday',
     totalSales: 'Total Sales',
@@ -226,6 +228,25 @@ export const Strings = {
     noRequestedOrdersWithSearch: 'No orders match your search.',
     requestedOrdersSearchAgain: 'Search again',
     requestedOrdersClearSearch: 'Clear search',
+    requestSearchOrderIdLabel: 'Order ID',
+    /** Shown on the request search sheet: all filters use substring (contains), case-insensitive. */
+    requestSearchContainsHint:
+      'Student and phone use contains matching (case-insensitive). Order ID: paste a full UUID to filter on the server, or type part of the id to search after loading this tab’s orders.',
+    requestedOrdersPdfOrderLabel: 'Order',
+    requestedOrdersPdfDateLabel: 'Date',
+    requestedOrdersPdfOrderTotalLabel: 'Order total',
+    requestedOrdersPdfMetaSection: 'Details',
+    requestedOrdersPdfItemsSection: 'Items to fulfill',
+    requestedOrdersPdfItemsSectionFulfilled: 'Fulfilled items',
+    requestedOrdersPdfQuantityLabel: 'Quantity',
+    requestedOrdersPdfExportA11y: 'Download requested orders as PDF',
+    requestedOrdersPdfChooseTitle: 'Export PDF',
+    requestedOrdersPdfChooseMessage: 'Which requests should this file include?',
+    requestedOrdersPdfSuccess: 'PDF downloaded.',
+    requestedOrdersPdfEmptyUnfulfilled: 'No unfulfilled requested orders to export.',
+    requestedOrdersPdfEmptyFulfilled: 'No fulfilled requested orders to export.',
+    requestedOrdersPdfError: 'Could not export PDF. Try again.',
+    requestedOrdersPdfWebOnly: 'PDF download is available in the web app.',
     requestLineDetails: 'Request details',
     student: 'Student',
     classLabel: 'Class',

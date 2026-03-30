@@ -2,6 +2,11 @@
  * Canonical GraphQL / DB column names on `order_item_requests`.
  * Use these everywhere we map UI ↔ API (search, create order nested insert).
  */
+
+/** For server `order_id` `_eq` only (Hasura `uuid` has no `_ilike` / `_cast` in comparisons). */
+export const ORDER_ID_FULL_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const OrderItemRequestField = {
   STUDENT_NAME: 'student_name',
   STUDENT_CLASS: 'student_class',
@@ -58,12 +63,29 @@ export interface RequestedOrderLinesResponse {
   totalCount: number;
 }
 
+/** PDF export variant: which request lines to include per order. */
+export type RequestedOrdersPdfVariant = 'unfulfilled' | 'fulfilled';
+
+/** One PDF page: one order and its request lines for the chosen export variant. */
+export interface RequestedOrderPdfPage {
+  order_id: string;
+  created_at: string;
+  total: number;
+  /** Pending lines for unfulfilled export; fulfilled lines for fulfilled export. */
+  lines: RequestedOrderLine[];
+}
+
 export interface FetchRequestedOrdersOptions {
   page?: number;
   limit?: number;
   tab: FulfillmentTab;
   /** AND filters on `order_item_requests` (student_name, student_class, phone_number). */
   searchFilters?: RequestItemSearchPayload;
+  /**
+   * When set to a **full UUID** string, filters with `order_id` `_eq` (optional `#` stripped).
+   * Partial / contains matching is done in the client after loading the tab (see list screen).
+   */
+  orderIdSearch?: string;
 }
 
 export interface FetchRequestedOrderLinesOptions {

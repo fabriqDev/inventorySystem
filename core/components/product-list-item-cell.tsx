@@ -12,7 +12,7 @@ export interface ProductListItemCellProps {
   /** When true and `product.quantity` is set, third row shows available count; otherwise price. */
   showQuantity?: boolean;
   onPress?: (product: Product) => void;
-  /** When set (e.g. inventory), show “Product stock low” on the qty row when available is below threshold (and not zero). */
+  /** When set (e.g. inventory), show “Product stock low” when available is above zero and at or below this threshold. */
   lowStockThreshold?: number;
 }
 
@@ -34,7 +34,7 @@ export function ProductListItemCell({
   const isLowStock =
     typeof lowStockThreshold === 'number' &&
     !outOfStock &&
-    available < lowStockThreshold;
+    available <= lowStockThreshold;
 
   return (
     <Pressable

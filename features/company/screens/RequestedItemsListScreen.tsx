@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
-import { fetchRequestedOrders } from '@/core/api/requested-orders';
+import {
+  fetchAllRequestedOrdersForTab,
+  fetchRequestedOrders,
+  fetchRequestedOrdersPdfPages,
+} from '@/core/api/requested-orders';
 import { ThemedText } from '@/core/components/themed-text';
 import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
@@ -21,11 +26,15 @@ import { Colors } from '@/core/constants/theme';
 import { useDataSource } from '@/core/context/data-source-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice } from '@/core/services/format';
+import { downloadRequestedOrdersFulfillmentPdf } from '@/core/services/pdf/requested-orders-fulfillment-pdf';
+import { toast } from '@/core/services/toast';
 import {
   OrderItemRequestField,
+  ORDER_ID_FULL_UUID_RE,
   type FulfillmentTab,
   type RequestItemSearchPayload,
   type RequestedOrderListRow,
+  type RequestedOrdersPdfVariant,
 } from '@/core/types/requested-orders';
 import { Strings } from '@/core/strings';
 
@@ -42,15 +51,19 @@ export default function RequestedItemsListScreen() {
   const [tab, setTab] = useState<FulfillmentTab>('unfulfilled');
   const [searchOpen, setSearchOpen] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<RequestItemSearchPayload>({});
+  const [draftOrderId, setDraftOrderId] = useState('');
   const [draftClass, setDraftClass] = useState('');
   const [draftStudent, setDraftStudent] = useState('');
   const [draftPhone, setDraftPhone] = useState('');
+  const [appliedOrderIdSearch, setAppliedOrderIdSearch] = useState('');
 
   const [orders, setOrders] = useState<RequestedOrderListRow[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfChoiceOpen, setPdfChoiceOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   /** Skip bumping refresh on first focus (useEffect already loads); bump when returning e.g. from detail after fulfill/revert. */
   const skipFocusRefreshRef = useRef(true);
@@ -67,11 +80,12 @@ export default function RequestedItemsListScreen() {
   }, [id]);
 
   const openSearchModal = useCallback(() => {
+    setDraftOrderId(appliedOrderIdSearch);
     setDraftClass(appliedFilters[OrderItemRequestField.STUDENT_CLASS] ?? '');
     setDraftStudent(appliedFilters[OrderItemRequestField.STUDENT_NAME] ?? '');
     setDraftPhone(appliedFilters[OrderItemRequestField.PHONE_NUMBER] ?? '');
     setSearchOpen(true);
-  }, [appliedFilters]);
+  }, [appliedFilters, appliedOrderIdSearch]);
 
   const applySearch = useCallback(() => {
     const next: RequestItemSearchPayload = {};
@@ -82,13 +96,16 @@ export default function RequestedItemsListScreen() {
     if (s) next[OrderItemRequestField.STUDENT_NAME] = s;
     if (p) next[OrderItemRequestField.PHONE_NUMBER] = p;
     setAppliedFilters(next);
+    setAppliedOrderIdSearch(draftOrderId.trim().replace(/^#/, ''));
     setSearchOpen(false);
-  }, [draftClass, draftStudent, draftPhone]);
+  }, [draftClass, draftOrderId, draftStudent, draftPhone]);
 
   const clearSearchFilters = useCallback(() => {
+    setDraftOrderId('');
     setDraftClass('');
     setDraftStudent('');
     setDraftPhone('');
+    setAppliedOrderIdSearch('');
     setAppliedFilters({});
     setSearchOpen(false);
   }, []);
@@ -96,20 +113,62 @@ export default function RequestedItemsListScreen() {
   const searchIsActive = useMemo(() => {
     const f = appliedFilters;
     return Boolean(
-      (f[OrderItemRequestField.STUDENT_NAME]?.trim() ?? '') ||
+      appliedOrderIdSearch.trim() ||
+        (f[OrderItemRequestField.STUDENT_NAME]?.trim() ?? '') ||
         (f[OrderItemRequestField.STUDENT_CLASS]?.trim() ?? '') ||
         (f[OrderItemRequestField.PHONE_NUMBER]?.trim() ?? ''),
     );
-  }, [appliedFilters]);
+  }, [appliedFilters, appliedOrderIdSearch]);
+
+  const normalizedOrderId = useMemo(
+    () => appliedOrderIdSearch.trim().replace(/^#/, ''),
+    [appliedOrderIdSearch],
+  );
+
+  const orderIdForServerEq = useMemo(() => {
+    if (!normalizedOrderId) return undefined;
+    if (!ORDER_ID_FULL_UUID_RE.test(normalizedOrderId)) return undefined;
+    return normalizedOrderId;
+  }, [normalizedOrderId]);
+
+  /** Partial order id: Hasura cannot substring-match uuid; load tab then filter in memory. */
+  const orderIdClientContains = useMemo(() => {
+    if (!normalizedOrderId) return null;
+    if (orderIdForServerEq) return null;
+    return normalizedOrderId.toLowerCase();
+  }, [normalizedOrderId, orderIdForServerEq]);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     setOrders([]);
     setPage(1);
+
+    if (orderIdClientContains) {
+      fetchAllRequestedOrdersForTab(id, tab, appliedFilters, useMockData)
+        .then((all) => {
+          if (!mountedRef.current) return;
+          const q = orderIdClientContains;
+          const filtered = all.filter((o) => o.order_id.toLowerCase().includes(q));
+          setOrders(filtered);
+          setHasMore(false);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (mountedRef.current) setLoading(false);
+        });
+      return;
+    }
+
     fetchRequestedOrders(
       id,
-      { page: 1, limit: PAGE_LIMIT, tab, searchFilters: appliedFilters },
+      {
+        page: 1,
+        limit: PAGE_LIMIT,
+        tab,
+        searchFilters: appliedFilters,
+        orderIdSearch: orderIdForServerEq,
+      },
       useMockData,
     )
       .then((res) => {
@@ -121,7 +180,7 @@ export default function RequestedItemsListScreen() {
       .finally(() => {
         if (mountedRef.current) setLoading(false);
       });
-  }, [id, tab, appliedFilters, useMockData, refreshKey]);
+  }, [id, tab, appliedFilters, orderIdForServerEq, orderIdClientContains, useMockData, refreshKey]);
 
   useFocusEffect(
     useCallback(() => {
@@ -139,12 +198,19 @@ export default function RequestedItemsListScreen() {
   }, []);
 
   const loadMore = useCallback(() => {
+    if (orderIdClientContains) return;
     if (!id || loadingMore || !hasMore || loading) return;
     const nextPage = page + 1;
     setLoadingMore(true);
     fetchRequestedOrders(
       id,
-      { page: nextPage, limit: PAGE_LIMIT, tab, searchFilters: appliedFilters },
+      {
+        page: nextPage,
+        limit: PAGE_LIMIT,
+        tab,
+        searchFilters: appliedFilters,
+        orderIdSearch: orderIdForServerEq,
+      },
       useMockData,
     )
       .then((res) => {
@@ -160,7 +226,55 @@ export default function RequestedItemsListScreen() {
       .finally(() => {
         if (mountedRef.current) setLoadingMore(false);
       });
-  }, [id, loadingMore, hasMore, loading, page, tab, appliedFilters, useMockData]);
+  }, [
+    id,
+    loadingMore,
+    hasMore,
+    loading,
+    page,
+    tab,
+    appliedFilters,
+    orderIdForServerEq,
+    orderIdClientContains,
+    useMockData,
+  ]);
+
+  const handleOpenPdfMenu = useCallback(() => {
+    if (!id) return;
+    if (Platform.OS !== 'web') {
+      toast.show({ type: 'info', message: Strings.company.requestedOrdersPdfWebOnly });
+      return;
+    }
+    setPdfChoiceOpen(true);
+  }, [id]);
+
+  const runPdfExport = useCallback(
+    async (variant: RequestedOrdersPdfVariant) => {
+      if (!id || pdfExporting) return;
+      setPdfChoiceOpen(false);
+      setPdfExporting(true);
+      try {
+        const pages = await fetchRequestedOrdersPdfPages(id, variant, useMockData);
+        if (pages.length === 0) {
+          toast.show({
+            type: 'info',
+            message:
+              variant === 'unfulfilled'
+                ? Strings.company.requestedOrdersPdfEmptyUnfulfilled
+                : Strings.company.requestedOrdersPdfEmptyFulfilled,
+          });
+          return;
+        }
+        downloadRequestedOrdersFulfillmentPdf({ companyId: id, variant, pages });
+        toast.show({ type: 'success', message: Strings.company.requestedOrdersPdfSuccess });
+      } catch {
+        toast.show({ type: 'error', message: Strings.company.requestedOrdersPdfError });
+      } finally {
+        setPdfExporting(false);
+      }
+    },
+    [id, pdfExporting, useMockData],
+  );
 
   const onRowPress = useCallback(
     (orderId: string) => {
@@ -208,6 +322,20 @@ export default function RequestedItemsListScreen() {
         <Pressable onPress={handleRefresh} hitSlop={12} style={styles.headerIconBtn}>
           <IconSymbol name="arrow.clockwise" size={22} color={colors.text} />
         </Pressable>
+        <Pressable
+          onPress={handleOpenPdfMenu}
+          disabled={pdfExporting || !id}
+          hitSlop={12}
+          style={styles.headerIconBtn}
+          accessibilityRole="button"
+          accessibilityLabel={Strings.company.requestedOrdersPdfExportA11y}
+        >
+          {pdfExporting ? (
+            <ActivityIndicator size="small" color={colors.tint} />
+          ) : (
+            <IconSymbol name="square.and.arrow.down" size={22} color={colors.text} />
+          )}
+        </Pressable>
         <Pressable onPress={openSearchModal} hitSlop={12} style={styles.headerIconBtn}>
           <View style={styles.searchIconWrap}>
             <IconSymbol name="magnifyingglass" size={22} color={colors.text} />
@@ -223,7 +351,17 @@ export default function RequestedItemsListScreen() {
         </Pressable>
       </View>
     ),
-    [colors.text, colors.tint, colors.background, handleRefresh, openSearchModal, searchIsActive],
+    [
+      colors.text,
+      colors.tint,
+      colors.background,
+      handleOpenPdfMenu,
+      handleRefresh,
+      id,
+      openSearchModal,
+      pdfExporting,
+      searchIsActive,
+    ],
   );
 
   const inputStyle = [styles.searchInput, { borderColor: colors.icon + '30', color: colors.text }];
@@ -335,6 +473,22 @@ export default function RequestedItemsListScreen() {
             </Pressable>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <ThemedText style={[styles.containsHint, { color: colors.icon }]}>
+              {Strings.company.requestSearchContainsHint}
+            </ThemedText>
+            <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
+              {Strings.company.requestSearchOrderIdLabel}
+            </ThemedText>
+            <TextInput
+              value={draftOrderId}
+              onChangeText={setDraftOrderId}
+              placeholder={Strings.company.requestSearchOrderIdLabel}
+              placeholderTextColor={colors.icon}
+              style={inputStyle}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
+            />
             <ThemedText style={[styles.fieldLabel, { color: colors.icon }]}>
               {Strings.company.requestSearchClassLabel}
             </ThemedText>
@@ -383,6 +537,43 @@ export default function RequestedItemsListScreen() {
               </ThemedText>
             </Pressable>
           </ScrollView>
+        </ThemedView>
+      </Modal>
+
+      <Modal
+        visible={pdfChoiceOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setPdfChoiceOpen(false)}
+      >
+        <Pressable style={styles.searchOverlay} onPress={() => setPdfChoiceOpen(false)} />
+        <ThemedView style={[styles.searchSheet, styles.pdfChoiceSheet, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={[styles.searchHeader, { borderBottomColor: colors.icon + '25' }]}>
+            <ThemedText type="subtitle">{Strings.company.requestedOrdersPdfChooseTitle}</ThemedText>
+            <Pressable onPress={() => setPdfChoiceOpen(false)} hitSlop={12}>
+              <ThemedText style={{ color: colors.icon }}>{Strings.common.cancel}</ThemedText>
+            </Pressable>
+          </View>
+          <ThemedText style={[styles.pdfChoiceMessage, { color: colors.icon }]}>
+            {Strings.company.requestedOrdersPdfChooseMessage}
+          </ThemedText>
+          <Pressable
+            onPress={() => void runPdfExport('unfulfilled')}
+            disabled={pdfExporting}
+            style={[styles.primaryBtn, { backgroundColor: colors.tint, opacity: pdfExporting ? 0.6 : 1 }]}
+          >
+            <ThemedText style={styles.primaryBtnText}>{Strings.company.unfulfilledOrders}</ThemedText>
+          </Pressable>
+          <Pressable
+            onPress={() => void runPdfExport('fulfilled')}
+            disabled={pdfExporting}
+            style={[
+              styles.primaryBtn,
+              { backgroundColor: colors.tint, marginTop: 10, opacity: pdfExporting ? 0.6 : 1 },
+            ]}
+          >
+            <ThemedText style={styles.primaryBtnText}>{Strings.company.fulfilledOrders}</ThemedText>
+          </Pressable>
         </ThemedView>
       </Modal>
     </ThemedView>
@@ -469,6 +660,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
+  pdfChoiceSheet: { maxHeight: '55%' },
+  containsHint: { fontSize: 13, lineHeight: 19, marginBottom: 12 },
+  pdfChoiceMessage: { fontSize: 15, lineHeight: 22, marginBottom: 18 },
   searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',

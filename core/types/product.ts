@@ -64,17 +64,25 @@ export function getAvailableStock(product: Pick<Product, 'quantity' | 'reserved'
 }
 
 /**
- * Upper bound (exclusive) for “low stock”: same as {@link ProductListItemCell} when passed this value.
- * Low stock means **some** sellable units remain but fewer than this number:
- * `0 < getAvailableStock(product) < LOW_STOCK_THRESHOLD` (e.g. 1–9 when threshold is 10).
+ * Inclusive upper bound for “low stock”: same as {@link ProductListItemCell} when passed this value.
+ * Low stock means **some** sellable units remain and available count is at most this number:
+ * `0 < getAvailableStock(product) <= LOW_STOCK_THRESHOLD` (e.g. 1–5 when threshold is 5).
  * Out of stock (`available === 0`) is excluded.
  */
-export const LOW_STOCK_THRESHOLD = 10;
+export const LOW_STOCK_THRESHOLD = 5;
 
-/** True when the product is not out of stock but below {@link LOW_STOCK_THRESHOLD} available units. */
+/** True when the product is not out of stock but available units are ≤ {@link LOW_STOCK_THRESHOLD}. */
 export function isLowStockProduct(product: Pick<Product, 'quantity' | 'reserved'>): boolean {
   const available = getAvailableStock(product);
-  return available > 0 && available < LOW_STOCK_THRESHOLD;
+  return available > 0 && available <= LOW_STOCK_THRESHOLD;
+}
+
+/** Inclusive minimum sellable units for “high stock” (inventory quick filter). */
+export const HIGH_STOCK_THRESHOLD = 30;
+
+/** True when available sellable units are at least {@link HIGH_STOCK_THRESHOLD}. */
+export function isHighStockProduct(product: Pick<Product, 'quantity' | 'reserved'>): boolean {
+  return getAvailableStock(product) >= HIGH_STOCK_THRESHOLD;
 }
 
 export interface ProductListResponse {

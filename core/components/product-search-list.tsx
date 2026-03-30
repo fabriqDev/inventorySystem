@@ -30,6 +30,7 @@ import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { Strings } from '@/core/strings';
 import {
   getAvailableStock,
+  isHighStockProduct,
   isLowStockProduct,
   UNIFORM_GROUP_TAB_ORDER,
   UniformGroup,
@@ -38,11 +39,13 @@ import {
 } from '@/core/types/product';
 
 const QUICK_FILTER_LOW_STOCK = 'low_stock' as const;
+const QUICK_FILTER_HIGH_STOCK = 'high_stock' as const;
 const QUICK_FILTER_UNAVAILABLE = 'unavailable' as const;
 export type ProductQuickFilter =
   | 'all'
   | UniformGroupValue
   | typeof QUICK_FILTER_LOW_STOCK
+  | typeof QUICK_FILTER_HIGH_STOCK
   | typeof QUICK_FILTER_UNAVAILABLE;
 
 /** Apply the same chip filters as the list (on an already search-filtered cached list). */
@@ -56,6 +59,9 @@ export function applyProductQuickFilter(
   }
   if (quickFilter === QUICK_FILTER_LOW_STOCK) {
     return products.filter((p) => isLowStockProduct(p));
+  }
+  if (quickFilter === QUICK_FILTER_HIGH_STOCK) {
+    return products.filter((p) => isHighStockProduct(p));
   }
   return products.filter((p) => p.uniform_group === quickFilter);
 }
@@ -84,6 +90,7 @@ const PRODUCT_QUICK_FILTER_TABS: { value: ProductQuickFilter; label: string }[] 
   { value: 'all', label: Strings.company.all },
   ...UNIFORM_GROUP_TAB_ORDER.map((g) => ({ value: g, label: uniformGroupFilterLabel(g) })),
   { value: QUICK_FILTER_LOW_STOCK, label: Strings.company.productSearchLowStock },
+  { value: QUICK_FILTER_HIGH_STOCK, label: Strings.company.productSearchHighStock },
   { value: QUICK_FILTER_UNAVAILABLE, label: Strings.company.productSearchNotAvailable },
 ];
 
@@ -277,9 +284,13 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
           const active = quickFilter === tab.value;
           const isUnavailableTab = tab.value === QUICK_FILTER_UNAVAILABLE;
           const isLowStockTab = tab.value === QUICK_FILTER_LOW_STOCK;
-          /** Same red accent as “Not available” for stock-related quick filters. */
-          const activeBg =
-            isUnavailableTab || isLowStockTab ? '#C62828' : colors.tint;
+          const isHighStockTab = tab.value === QUICK_FILTER_HIGH_STOCK;
+          /** Red for low / out of stock; green for high stock; default tint otherwise. */
+          const activeBg = isUnavailableTab || isLowStockTab
+            ? '#C62828'
+            : isHighStockTab
+              ? '#2E7D32'
+              : colors.tint;
           return (
             <Pressable
               key={tab.value}
