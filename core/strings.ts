@@ -40,6 +40,8 @@ export const Strings = {
     company: 'Company',
     redirecting: 'Redirecting...',
     creatingOrder: 'Creating order…',
+    yes: 'Yes',
+    no: 'No',
   },
   home: {
     yourSchools: 'Your Schools',
@@ -85,6 +87,8 @@ export const Strings = {
     inventoryStockFilterInvalid: 'Enter valid whole numbers (0 or more).',
     /** Shown under inputs on inventory stock popup. */
     inventoryStockFilterCombineHint: 'Works together with category (Top, Bottom…) and search.',
+    /** Product detail (inventory): cumulative supplied quantity from backend. */
+    inventoryProductDetailTotalSupplied: 'Total supplied',
     salesDescription: 'View past orders & revenue',
     createOrderDescription: 'Start a new order',
     transferDescription: 'Transfer stock between companies',
@@ -133,6 +137,8 @@ export const Strings = {
     today: 'Today',
     yesterday: 'Yesterday',
     totalSales: 'Total Sales',
+    /** Sales screen summary when Cancelled filter is selected (sum of cancelled order totals). */
+    ordersSummaryCancelledTotal: 'Cancelled orders total',
     totalRefunds: 'Total Refunds',
     cashSales: 'Cash',
     onlineSales: 'Online',
@@ -151,6 +157,41 @@ export const Strings = {
     exportPdfSuccess: 'PDF downloaded.',
     exportPdfError: 'Could not export. Try again.',
     exportPdfCustomInvalid: 'Select a start and end date on the calendar.',
+    /** Sales orders CSV: confirm dialog title. */
+    ordersExportCsvTitle: 'Download orders (spreadsheet)',
+    /** Sales orders CSV: confirm button. */
+    ordersExportCsvDownload: 'Download',
+    /** Sales orders CSV: a11y for header download button. */
+    ordersExportCsvA11y: 'Download orders as spreadsheet',
+    ordersExportCsvEmpty: 'No orders match this export.',
+    ordersExportCsvSuccess: 'Spreadsheet downloaded.',
+    ordersExportCsvError: 'Could not export orders. Try again.',
+    /** Shown in confirm body when no date preset is applied (export is whole company history). */
+    ordersExportNoDateWarning:
+      'No date range is selected. Loading all orders for this company may take a while. Continue only if you are ready to wait.',
+    /** Intro line for CSV export confirm (followed by filter / date bullets). */
+    ordersExportScopeIntro: 'The spreadsheet will include orders matching:',
+    ordersExportScopeFilter: 'Filter',
+    ordersExportScopeDate: 'Date range',
+    ordersExportScopeAllDates: 'All dates',
+    ordersExportScopeOrderSearch: 'Order ID search',
+    /** Shown in CSV confirm after filter/date when export includes line items. */
+    ordersExportScopeFormat: 'Format',
+    ordersExportScopeFormatSummary: 'One row per order',
+    ordersExportScopeFormatLineItems: 'One row per order line item',
+    ordersExportFormatTitle: 'Export spreadsheet',
+    ordersExportFormatSummaryRow: 'One row per order',
+    ordersExportFormatSummaryHint: 'Order totals only — no product line breakdown.',
+    ordersExportFormatLineItemsRow: 'One row per line item',
+    ordersExportFormatLineItemsHint:
+      'Each row: order id, article, size, qty, unit price, line total, requested (Yes/No), line kind.',
+    /** Orders line-item CSV: transaction_type === sale. */
+    ordersExportLineStatusSale: 'Sale',
+    ordersExportLineItemRequestedColumn: 'Requested',
+    ordersExportLineItemKindColumn: 'Line kind',
+    /** Appended after ordersExportNoDateWarning for line-item CSV without a date. */
+    ordersExportNoDateExtraLineItems:
+      '\n\nThis export loads every order line and usually takes longer than a summary export.',
     from: 'From',
     to: 'To',
     loadingMore: 'Loading more…',

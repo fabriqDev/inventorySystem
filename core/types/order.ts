@@ -169,9 +169,12 @@ export interface Order {
   notes?: string;
 }
 
-/** Aggregated stats for **success** orders only (same date/company scope as list query). */
+/**
+ * Aggregates for sales summary (same date/company scope as list query).
+ * Revenue/cash/online/refunds are **success** orders only (excludes cancelled, failed, pending).
+ */
 export interface OrderStats {
-  /** Sum of `total` for success orders. */
+  /** Sum of `total` for success orders only. */
   totalRevenue: number;
   /** Sum of `refund_amount` for success orders. */
   totalRefunds: number;
@@ -179,6 +182,8 @@ export interface OrderStats {
   cashTotal: number;
   /** Sum of `online_share` for success orders. */
   onlineTotal: number;
+  /** Sum of `total` for cancelled orders. */
+  totalCancelled: number;
 }
 
 /** Paginated response from fetchOrders. */

@@ -348,6 +348,7 @@ query GetProducts($companyId: uuid!) {
   ) {
     stock
     reserved
+    total_supplied
     selling_price
     discount_percentage
     tax_percentage
@@ -378,6 +379,8 @@ const PRODUCT_BY_BARCODE_QUERY = `
       company_id
       size
       stock
+      reserved
+      total_supplied
       selling_price
       discount_percentage
       tax_percentage
@@ -440,6 +443,13 @@ const ORDERS_QUERY = `
         sum { total refund_amount cash_share online_share }
       }
     }
+    cancelled_order_stats: order_history_aggregate(
+      where: { company_id: { _eq: $companyId }, status: { _eq: "cancelled" } }
+    ) {
+      aggregate {
+        sum { total }
+      }
+    }
   }
 `;
 
@@ -489,6 +499,17 @@ const ORDERS_QUERY_WITH_DATES = `
         sum { total refund_amount cash_share online_share }
       }
     }
+    cancelled_order_stats: order_history_aggregate(
+      where: {
+        company_id: { _eq: $companyId }
+        created_at: { _gte: $dateFrom, _lte: $dateTo }
+        status: { _eq: "cancelled" }
+      }
+    ) {
+      aggregate {
+        sum { total }
+      }
+    }
   }
 `;
 
@@ -521,6 +542,42 @@ const ORDERS_EXPORT_WITH_ITEMS_QUERY = `
         company_id: { _eq: $companyId }
         created_at: { _gte: $dateFrom, _lte: $dateTo }
       }
+      order_by: { created_at: desc }
+      limit: $limit
+      offset: $offset
+    ) {
+      order_id
+      company_id
+      total
+      refund_amount
+      payment_type
+      payment_provider
+      cash_share
+      online_share
+      created_at
+      status
+      subtotal
+      customer_details
+      notes
+      order_items {
+        article_code
+        product_name
+        quantity
+        unit_price
+        total
+        transaction_type
+        product {
+          size
+        }
+      }
+    }
+  }
+`;
+
+const ORDERS_EXPORT_WITH_ITEMS_NO_DATE_QUERY = `
+  query ExportOrdersWithItemsNoDate($companyId: uuid!, $limit: Int!, $offset: Int!) {
+    order_history(
+      where: { company_id: { _eq: $companyId } }
       order_by: { created_at: desc }
       limit: $limit
       offset: $offset
@@ -942,6 +999,7 @@ function mapProductInventoryRow(row: any): Product {
     discount_percentage: row.discount_percentage ?? 0,
     tax_percentage: row.tax_percentage ?? 0,
     reserved,
+    total_supplied: row.total_supplied != null ? Number(row.total_supplied) : undefined,
   };
 }
 
@@ -1073,6 +1131,7 @@ const data: DataProvider = {
     const rows = d?.order_history ?? [];
     const aggregate = d?.order_history_aggregate?.aggregate ?? {};
     const successSum = d?.success_order_stats?.aggregate?.sum ?? {};
+    const cancelledSum = d?.cancelled_order_stats?.aggregate?.sum ?? {};
 
     const orders = rows.map((o: any) => ({
       server_order_id: o.order_id,
@@ -1100,6 +1159,7 @@ const data: DataProvider = {
         totalRefunds: successSum.refund_amount ?? 0,
         cashTotal: successSum.cash_share ?? 0,
         onlineTotal: successSum.online_share ?? 0,
+        totalCancelled: cancelledSum.total ?? 0,
       },
     };
   },
@@ -1122,18 +1182,25 @@ const data: DataProvider = {
 
   async fetchOrdersWithItemsForExport(companyId, opts: FetchOrdersWithItemsExportOptions) {
     const { dateFrom, dateTo } = opts;
+    const useDateRange = Boolean(dateFrom && dateTo);
     const all: OrderWithItems[] = [];
     let offset = 0;
     for (;;) {
       const d = await gqlRequest<any>({
-        query: ORDERS_EXPORT_WITH_ITEMS_QUERY,
-        variables: {
-          companyId,
-          limit: EXPORT_ORDERS_PAGE_LIMIT,
-          offset,
-          dateFrom,
-          dateTo,
-        },
+        query: useDateRange ? ORDERS_EXPORT_WITH_ITEMS_QUERY : ORDERS_EXPORT_WITH_ITEMS_NO_DATE_QUERY,
+        variables: useDateRange
+          ? {
+              companyId,
+              limit: EXPORT_ORDERS_PAGE_LIMIT,
+              offset,
+              dateFrom,
+              dateTo,
+            }
+          : {
+              companyId,
+              limit: EXPORT_ORDERS_PAGE_LIMIT,
+              offset,
+            },
       });
       const rows = d?.order_history ?? [];
       for (const row of rows) {

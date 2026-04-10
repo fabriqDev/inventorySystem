@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
+import { Strings } from '@/core/strings';
 import { getAvailableStock, type Product } from '@/core/types/product';
 
 function csvEscapeCell(value: string): string {
@@ -15,11 +16,17 @@ function csvEscapeCell(value: string): string {
 const CSV_BOM = '\uFEFF';
 
 /**
- * Build CSV: Product name, Article code, Quantity (available sellable units), Size.
+ * Build CSV: Product name, Article code, Quantity (available sellable units), Size, Total supplied.
  * Opens in Excel; `.csv` extension.
  */
 export function buildInventoryCsv(products: Product[]): string {
-  const header = ['Product name', 'Article code', 'Quantity', 'Size'];
+  const header = [
+    'Product name',
+    'Article code',
+    'Quantity',
+    'Size',
+    Strings.company.inventoryProductDetailTotalSupplied,
+  ];
   const lines = [header.map(csvEscapeCell).join(',')];
   const sorted = [...products].sort((a, b) =>
     (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' }),
@@ -29,7 +36,8 @@ export function buildInventoryCsv(products: Product[]): string {
     const article = (p.article_code?.trim() || p.scan_code?.trim() || '').trim();
     const qty = String(getAvailableStock(p));
     const size = (p.size ?? '').trim();
-    lines.push([name, article, qty, size].map(csvEscapeCell).join(','));
+    const totalSupplied = p.total_supplied != null ? String(p.total_supplied) : '';
+    lines.push([name, article, qty, size, totalSupplied].map(csvEscapeCell).join(','));
   }
   return lines.join('\r\n');
 }

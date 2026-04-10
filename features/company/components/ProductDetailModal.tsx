@@ -58,6 +58,14 @@ export function ProductDetailModal({ product, visible, onClose }: ProductDetailM
           <ThemedText style={{ color: colors.icon }}>{Strings.company.available}</ThemedText>
           <ThemedText type="defaultSemiBold">{available}</ThemedText>
         </View>
+        {product.total_supplied != null ? (
+          <View style={[styles.row, { borderBottomColor: colors.icon + '20' }]}>
+            <ThemedText style={{ color: colors.icon }}>
+              {Strings.company.inventoryProductDetailTotalSupplied}
+            </ThemedText>
+            <ThemedText>{product.total_supplied}</ThemedText>
+          </View>
+        ) : null}
         <View style={[styles.row, { borderBottomColor: colors.icon + '20' }]}>
           <ThemedText style={{ color: colors.icon }}>Price</ThemedText>
           <ThemedText>{formatPrice(product.price, product.currency)}</ThemedText>

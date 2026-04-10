@@ -54,6 +54,8 @@ export interface Product {
   discount_percentage?: number;
   tax_percentage?: number;
   reserved?: number;
+  /** Lifetime / cumulative units supplied (from `product_inventory.total_supplied` when present). */
+  total_supplied?: number;
   image_url?: string | null;
   created_at?: string;
 }

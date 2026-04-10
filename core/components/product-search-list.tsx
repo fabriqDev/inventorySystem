@@ -139,6 +139,8 @@ interface Props {
    * {@link ProductSearchListHandle.openInventoryStockFilter}).
    */
   hideInventoryQuantityFilterRow?: boolean;
+  /** e.g. add-to-cart modal: search only; no uniform/stock quick-filter chips. */
+  hideQuickFilters?: boolean;
   /** Inventory only: called when the quantity/stock filter is applied or cleared. */
   onInventoryStockFilterChange?: (filter: InventoryStockFilter | null) => void;
 }
@@ -154,6 +156,7 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
     renderItem: customRenderItem,
     variant = 'default',
     hideInventoryQuantityFilterRow = false,
+    hideQuickFilters = false,
     onInventoryStockFilterChange,
   },
   ref,
@@ -192,6 +195,9 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
     setInventoryStockFilter(null);
   }, [companyId]);
 
+  /** When chips are hidden, list/export always behave as “all products matching search”. */
+  const effectiveQuickFilter: ProductQuickFilter = hideQuickFilters ? 'all' : quickFilter;
+
   useEffect(() => {
     if (variant !== 'inventory') return;
     onInventoryStockFilterChange?.(inventoryStockFilter);
@@ -207,26 +213,26 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
     () => ({
       getProductsForExport: () => {
         if (variant === 'inventory') {
-          const u = applyUniformOnlyFilter(localFiltered, quickFilter);
+          const u = applyUniformOnlyFilter(localFiltered, effectiveQuickFilter);
           return u.filter((p) => productMatchesInventoryStockFilter(p, inventoryStockFilter));
         }
-        return applyProductQuickFilter(localFiltered, quickFilter);
+        return applyProductQuickFilter(localFiltered, effectiveQuickFilter);
       },
       openInventoryStockFilter: () => {
         if (variant === 'inventory') setStockFilterModalVisible(true);
       },
     }),
-    [localFiltered, quickFilter, variant, inventoryStockFilter],
+    [localFiltered, effectiveQuickFilter, variant, inventoryStockFilter],
   );
 
   const rawDisplayProducts = backendResults !== null ? backendResults : localFiltered;
   const filteredProducts = useMemo(() => {
     if (variant === 'inventory') {
-      const uniformFiltered = applyUniformOnlyFilter(rawDisplayProducts, quickFilter);
+      const uniformFiltered = applyUniformOnlyFilter(rawDisplayProducts, effectiveQuickFilter);
       return uniformFiltered.filter((p) => productMatchesInventoryStockFilter(p, inventoryStockFilter));
     }
-    return applyProductQuickFilter(rawDisplayProducts, quickFilter);
-  }, [rawDisplayProducts, quickFilter, variant, inventoryStockFilter]);
+    return applyProductQuickFilter(rawDisplayProducts, effectiveQuickFilter);
+  }, [rawDisplayProducts, effectiveQuickFilter, variant, inventoryStockFilter]);
 
   const displayProducts = useMemo(() => {
     if (filteredProducts.length <= 1) return filteredProducts;
@@ -350,14 +356,16 @@ export const ProductSearchList = forwardRef<ProductSearchListHandle, Props>(func
         </Pressable>
       ) : null}
 
-      <View style={styles.quickFiltersWrap}>
-        <ProductQuickFilterChips
-          tabs={variant === 'inventory' ? INVENTORY_UNIFORM_TABS : PRODUCT_QUICK_FILTER_TABS}
-          value={quickFilter}
-          onChange={setQuickFilter}
-          variant={variant}
-        />
-      </View>
+      {!hideQuickFilters ? (
+        <View style={styles.quickFiltersWrap}>
+          <ProductQuickFilterChips
+            tabs={variant === 'inventory' ? INVENTORY_UNIFORM_TABS : PRODUCT_QUICK_FILTER_TABS}
+            value={quickFilter}
+            onChange={setQuickFilter}
+            variant={variant}
+          />
+        </View>
+      ) : null}
 
       {cacheLoading(companyId) && !isCached(companyId) ? (
         <View style={styles.center}>

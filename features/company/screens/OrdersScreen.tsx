@@ -15,8 +15,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { toBackendError, toUserMessage } from '@/core/backend/errors';
-import type { FetchOrdersOptions } from '@/core/api/orders';
-import { cancelOrder, fetchOrderItems, fetchOrders } from '@/core/api/orders';
+import type { FetchOrdersOptions, FetchOrdersWithItemsExportOptions } from '@/core/api/orders';
+import {
+  cancelOrder,
+  fetchAllOrdersForExport,
+  fetchOrderItems,
+  fetchOrders,
+  fetchOrdersWithItemsForExport,
+} from '@/core/api/orders';
 import { ConfirmActionModal } from '@/core/components/confirm-action-modal';
 import { SalesDatePresetPicker, type SalesDatePreset } from '@/core/components/sales-date-preset-picker';
 import { ThemedText } from '@/core/components/themed-text';
@@ -28,6 +34,11 @@ import { useDataSource } from '@/core/context/data-source-context';
 import { useProductCache } from '@/core/context/product-cache-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatDate, formatPrice, roundMoney } from '@/core/services/format';
+import {
+  exportOrdersCsv,
+  exportOrdersWithLineItemsCsv,
+  filterOrdersForExport,
+} from '@/core/services/orders-export-csv';
 import { orderItemsToReceiptLineItems } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
@@ -217,7 +228,13 @@ export default function OrdersScreen() {
 
   // Orders data
   const [orders, setOrders] = useState<OrderWithItems[]>([]);
-  const [stats, setStats] = useState<OrderStats>({ totalRevenue: 0, totalRefunds: 0, cashTotal: 0, onlineTotal: 0 });
+  const [stats, setStats] = useState<OrderStats>({
+    totalRevenue: 0,
+    totalRefunds: 0,
+    cashTotal: 0,
+    onlineTotal: 0,
+    totalCancelled: 0,
+  });
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -231,6 +248,10 @@ export default function OrdersScreen() {
   const [showCancelOrderConfirm, setShowCancelOrderConfirm] = useState(false);
   /** Inline error on order detail modal (toasts sit behind RN Modal). */
   const [orderDetailError, setOrderDetailError] = useState<string | null>(null);
+  const [exportFormatModalVisible, setExportFormatModalVisible] = useState(false);
+  const [csvExportKind, setCsvExportKind] = useState<'summary' | 'lineItems'>('summary');
+  const [exportCsvConfirmVisible, setExportCsvConfirmVisible] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const itemCacheRef = useRef<Record<string, OrderItem[]>>({});
 
   const mountedRef = useRef(true);
@@ -322,6 +343,57 @@ export default function OrdersScreen() {
     return opts;
   }, [dateFilter]);
 
+  const runOrdersCsvExport = useCallback(async () => {
+    if (!id || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const o = buildFetchOptions(1);
+      const { page: _page, limit: _limit, ...exportBase } = o;
+      if (csvExportKind === 'lineItems') {
+        const itemOpts: FetchOrdersWithItemsExportOptions = {};
+        if (exportBase.dateFrom && exportBase.dateTo) {
+          itemOpts.dateFrom = exportBase.dateFrom;
+          itemOpts.dateTo = exportBase.dateTo;
+        }
+        const withItems = await fetchOrdersWithItemsForExport(id, itemOpts, useMockData);
+        const filtered = filterOrdersForExport(withItems, filter, appliedOrderIdFilter);
+        const res = await exportOrdersWithLineItemsCsv(filtered, id);
+        if (res.ok) {
+          toast.show({ type: 'success', message: Strings.company.ordersExportCsvSuccess });
+          setExportCsvConfirmVisible(false);
+        } else if (res.reason === 'empty') {
+          toast.show({ type: 'info', message: Strings.company.ordersExportCsvEmpty });
+        } else {
+          toast.show({ type: 'error', message: Strings.company.ordersExportCsvError });
+        }
+      } else {
+        const all = await fetchAllOrdersForExport(id, exportBase, useMockData);
+        const filtered = filterOrdersForExport(all, filter, appliedOrderIdFilter);
+        const res = await exportOrdersCsv(filtered, id);
+        if (res.ok) {
+          toast.show({ type: 'success', message: Strings.company.ordersExportCsvSuccess });
+          setExportCsvConfirmVisible(false);
+        } else if (res.reason === 'empty') {
+          toast.show({ type: 'info', message: Strings.company.ordersExportCsvEmpty });
+        } else {
+          toast.show({ type: 'error', message: Strings.company.ordersExportCsvError });
+        }
+      }
+    } catch {
+      toast.show({ type: 'error', message: Strings.company.ordersExportCsvError });
+    } finally {
+      if (mountedRef.current) setExportingCsv(false);
+    }
+  }, [
+    id,
+    exportingCsv,
+    buildFetchOptions,
+    useMockData,
+    filter,
+    appliedOrderIdFilter,
+    csvExportKind,
+  ]);
+
   // ── Fetch page 1 ─────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -383,11 +455,31 @@ export default function OrdersScreen() {
 
   // ── Active stats for current filter ──────────────────────────────────────
 
-  // Header always shows total sales — consistent across all filter tabs
-  const primaryStat = useMemo(() => ({
-    label: Strings.company.totalSales,
-    value: stats.totalRevenue,
-  }), [stats.totalRevenue]);
+  /**
+   * Top summary: success-only revenue for most tabs (matches chips).
+   * Refunds / Cancelled tabs show dedicated totals (same scope as date filter).
+   */
+  const primaryStat = useMemo(() => {
+    if (filter === OrderStatus.CANCELLED) {
+      return {
+        label: Strings.company.ordersSummaryCancelledTotal,
+        value: stats.totalCancelled,
+        valueColor: '#616161' as const,
+      };
+    }
+    if (filter === 'refund') {
+      return {
+        label: Strings.company.totalRefunds,
+        value: stats.totalRefunds,
+        valueColor: '#C62828' as const,
+      };
+    }
+    return {
+      label: Strings.company.totalSales,
+      value: stats.totalRevenue,
+      valueColor: null as null,
+    };
+  }, [filter, stats.totalCancelled, stats.totalRefunds, stats.totalRevenue]);
 
   const currency = orders[0]?.currency ?? CURRENCY_DEFAULT;
 
@@ -489,6 +581,33 @@ export default function OrdersScreen() {
 
   const hasActiveDateFilter = dateFilter.preset !== null;
   const hasActiveOrderIdSearch = appliedOrderIdFilter.trim().length > 0;
+
+  const csvExportConfirmMessage = useMemo(() => {
+    const filterLabel = FILTERS.find((f) => f.value === filter)?.label ?? String(filter);
+    let dateLine: string = Strings.company.ordersExportScopeAllDates;
+    if (hasActiveDateFilter) {
+      if (dateFilter.preset === 'custom') {
+        const r = dateFilterToRangeYmd(dateFilter.from, dateFilter.to);
+        if (r.from && r.to) dateLine = `${r.from} – ${r.to}`;
+        else dateLine = Strings.company.ordersExportScopeAllDates;
+      } else if (dateFilter.preset === 'today') dateLine = Strings.company.today;
+      else if (dateFilter.preset === '3days') dateLine = Strings.company.last3Days;
+      else if (dateFilter.preset === '7days') dateLine = Strings.company.last7Days;
+      else if (dateFilter.preset === '1month') dateLine = Strings.company.last1Month;
+    }
+    const formatLabel =
+      csvExportKind === 'lineItems'
+        ? Strings.company.ordersExportScopeFormatLineItems
+        : Strings.company.ordersExportScopeFormatSummary;
+    let msg = `${Strings.company.ordersExportScopeIntro}\n\n• ${Strings.company.ordersExportScopeFilter}: ${filterLabel}\n• ${Strings.company.ordersExportScopeDate}: ${dateLine}\n• ${Strings.company.ordersExportScopeFormat}: ${formatLabel}`;
+    const q = appliedOrderIdFilter.trim().replace(/^#/, '');
+    if (q) msg += `\n• ${Strings.company.ordersExportScopeOrderSearch}: ${q}`;
+    if (!hasActiveDateFilter) {
+      msg += `\n\n${Strings.company.ordersExportNoDateWarning}`;
+      if (csvExportKind === 'lineItems') msg += Strings.company.ordersExportNoDateExtraLineItems;
+    }
+    return msg;
+  }, [filter, hasActiveDateFilter, dateFilter, appliedOrderIdFilter, csvExportKind]);
 
   const openOrderIdSearchModal = useCallback(() => {
     setDraftOrderIdSearch(appliedOrderIdFilter);
@@ -610,6 +729,16 @@ export default function OrdersScreen() {
               <Pressable onPress={handleRefresh} hitSlop={10} style={styles.headerIconBtn}>
                 <IconSymbol name="arrow.clockwise" size={22} color={colors.icon} />
               </Pressable>
+              <Pressable
+                onPress={() => setExportFormatModalVisible(true)}
+                hitSlop={10}
+                style={styles.headerIconBtn}
+                disabled={!id || loading}
+                accessibilityRole="button"
+                accessibilityLabel={Strings.company.ordersExportCsvA11y}
+              >
+                <IconSymbol name="square.and.arrow.down" size={22} color={colors.icon} />
+              </Pressable>
               <Pressable onPress={openDateFilter} hitSlop={10} style={styles.filterIconBtn}>
                 <IconSymbol
                   name="line.3.horizontal.decrease.circle"
@@ -647,7 +776,10 @@ export default function OrdersScreen() {
       {/* Summary card */}
       <View style={[styles.totalCard, { backgroundColor: colors.tint + '10', borderColor: colors.tint + '30' }]}>
         <ThemedText style={[styles.totalLabel, { color: colors.tint }]}>{primaryStat.label}</ThemedText>
-        <ThemedText type="title" style={[styles.totalValue, { color: colors.tint }]}>
+        <ThemedText
+          type="title"
+          style={[styles.totalValue, { color: primaryStat.valueColor ?? colors.tint }]}
+        >
           {formatPrice(roundMoney(primaryStat.value), currency)}
         </ThemedText>
         <View style={[styles.statsRow, { borderTopColor: colors.icon + '20' }]}>
@@ -1060,6 +1192,83 @@ export default function OrdersScreen() {
           </ThemedView>
         </View>
       </Modal>
+
+      <Modal
+        visible={exportFormatModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setExportFormatModalVisible(false)}
+      >
+        <View style={styles.ordersExportFormatRoot}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, styles.orderIdAlertBackdrop]}
+            onPress={() => setExportFormatModalVisible(false)}
+          />
+          <ThemedView
+            style={[
+              styles.ordersExportFormatCard,
+              { backgroundColor: colors.background, borderColor: colors.icon + '22' },
+            ]}
+          >
+            <ThemedText type="subtitle" style={[styles.ordersExportFormatHeading, { color: colors.text }]}>
+              {Strings.company.ordersExportFormatTitle}
+            </ThemedText>
+            <Pressable
+              onPress={() => {
+                setCsvExportKind('summary');
+                setExportFormatModalVisible(false);
+                setExportCsvConfirmVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.ordersExportFormatOption,
+                { borderColor: colors.tint, backgroundColor: colors.tint + '14' },
+                pressed && { opacity: 0.92 },
+              ]}
+            >
+              <ThemedText type="defaultSemiBold" style={{ color: colors.text }}>
+                {Strings.company.ordersExportFormatSummaryRow}
+              </ThemedText>
+              <ThemedText style={[styles.ordersExportFormatHint, { color: colors.icon }]}>
+                {Strings.company.ordersExportFormatSummaryHint}
+              </ThemedText>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setCsvExportKind('lineItems');
+                setExportFormatModalVisible(false);
+                setExportCsvConfirmVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.ordersExportFormatOption,
+                { borderColor: colors.tint, backgroundColor: colors.tint + '14' },
+                pressed && { opacity: 0.92 },
+              ]}
+            >
+              <ThemedText type="defaultSemiBold" style={{ color: colors.text }}>
+                {Strings.company.ordersExportFormatLineItemsRow}
+              </ThemedText>
+              <ThemedText style={[styles.ordersExportFormatHint, { color: colors.icon }]}>
+                {Strings.company.ordersExportFormatLineItemsHint}
+              </ThemedText>
+            </Pressable>
+            <Pressable onPress={() => setExportFormatModalVisible(false)} style={styles.ordersExportFormatCancel}>
+              <ThemedText style={{ color: colors.icon, fontWeight: '600' }}>{Strings.common.cancel}</ThemedText>
+            </Pressable>
+          </ThemedView>
+        </View>
+      </Modal>
+
+      <ConfirmActionModal
+        visible={exportCsvConfirmVisible}
+        onClose={() => !exportingCsv && setExportCsvConfirmVisible(false)}
+        title={Strings.company.ordersExportCsvTitle}
+        message={csvExportConfirmMessage}
+        cancelLabel={Strings.common.cancel}
+        confirmLabel={Strings.company.ordersExportCsvDownload}
+        confirmColor={colors.tint}
+        loading={exportingCsv}
+        onConfirm={() => void runOrdersCsvExport()}
+      />
     </ThemedView>
   );
 }
@@ -1143,6 +1352,30 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
+
+  ordersExportFormatRoot: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  ordersExportFormatCard: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 20,
+    gap: 12,
+  },
+  ordersExportFormatHeading: { textAlign: 'center', marginBottom: 4 },
+  ordersExportFormatOption: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  ordersExportFormatHint: { fontSize: 13, marginTop: 6, lineHeight: 18 },
+  ordersExportFormatCancel: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
 
   // Summary card
   totalCard: {

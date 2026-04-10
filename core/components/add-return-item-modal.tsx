@@ -224,6 +224,7 @@ export function AddReturnItemModal({ visible, onClose, mode, companyId, onItemAd
             companyId={companyId}
             onSelectProduct={handleProductAdded}
             showQuantity={mode !== 'request'}
+            hideQuickFilters
           />
         </ThemedView>
       </Modal>

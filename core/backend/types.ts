@@ -50,10 +50,13 @@ export interface FetchOrdersOptions {
   dateTo?: string;
 }
 
-/** Required date bounds for PDF export (orders with line items). */
+/**
+ * Orders with nested `order_items` for CSV/PDF-style export.
+ * When both dates are set, results are limited to `created_at` in range; otherwise all company orders (can be large).
+ */
 export interface FetchOrdersWithItemsExportOptions {
-  dateFrom: string;
-  dateTo: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 
