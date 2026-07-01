@@ -50,6 +50,10 @@ export interface ReceiptData {
   paymentMethod: string;
   isRefund?: boolean;
   currency?: string;
+  /** Overrides the default seller name on the receipt when the company has a registered name. */
+  sellerName?: string;
+  /** GST number printed below the seller name when present. */
+  gstNumber?: string;
 }
 
 /** Strip non-ASCII characters so thermal printers (CP437) don't print garbage glyphs. */
@@ -88,7 +92,11 @@ function formatReceiptDate(iso: string): string {
 export function buildReceiptText(data: ReceiptData): string {
   const lines: string[] = [];
 
-  lines.push('<CD>' + SELLER_NAME + '</CD>');
+  const displayName = ascii(data.sellerName?.trim() || SELLER_NAME);
+  lines.push('<CD>' + displayName + '</CD>');
+  if (data.gstNumber?.trim()) {
+    lines.push('<C>GST: ' + ascii(data.gstNumber.trim()) + '</C>');
+  }
   lines.push('<C>----------------</C>');
   lines.push('');
   const orderId = ascii(data.orderId);

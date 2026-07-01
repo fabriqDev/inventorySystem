@@ -185,10 +185,16 @@ export const Strings = {
     ordersExportFormatLineItemsRow: 'One row per line item',
     ordersExportFormatLineItemsHint:
       'Each row: order id, article, size, qty, unit price, line total, requested (Yes/No), line kind.',
+    /** Sales export: Excel workbook sheet name (≤31 chars). */
+    ordersExportExcelSheetOrders: 'Orders',
+    ordersExportExcelSheetLines: 'Line items',
+    ordersExportFormatExcelRow: 'Excel (Orders + Lines)',
+    ordersExportFormatExcelHint:
+      'Two sheets: Orders (one row per order, totals & buyer) and Line items (one row per line). Link by Order ID.',
+    ordersExportExcelSuccess: 'Workbook downloaded.',
     /** Orders line-item CSV: transaction_type === sale. */
     ordersExportLineStatusSale: 'Sale',
-    ordersExportLineItemRequestedColumn: 'Requested',
-    ordersExportLineItemKindColumn: 'Line kind',
+    ordersExportLineItemKindColumn: 'Order Type',
     /** Appended after ordersExportNoDateWarning for line-item CSV without a date. */
     ordersExportNoDateExtraLineItems:
       '\n\nThis export loads every order line and usually takes longer than a summary export.',

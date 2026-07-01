@@ -604,7 +604,9 @@ export default function OrdersScreen() {
     if (q) msg += `\n• ${Strings.company.ordersExportScopeOrderSearch}: ${q}`;
     if (!hasActiveDateFilter) {
       msg += `\n\n${Strings.company.ordersExportNoDateWarning}`;
-      if (csvExportKind === 'lineItems') msg += Strings.company.ordersExportNoDateExtraLineItems;
+      if (csvExportKind === 'lineItems') {
+        msg += Strings.company.ordersExportNoDateExtraLineItems;
+      }
     }
     return msg;
   }, [filter, hasActiveDateFilter, dateFilter, appliedOrderIdFilter, csvExportKind]);

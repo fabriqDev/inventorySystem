@@ -196,6 +196,8 @@ export interface OrdersResponse {
 export interface OrderItem {
   /** Article/barcode code of the product; used for receipt and all lookups. */
   article_code: string;
+  /** HSN/SAC code from product master when available. */
+  hsn_code?: string;
   product_name: string;
   /** Size of product (e.g. S, M, L); used on receipt. */
   size?: string;

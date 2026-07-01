@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
-import { formatAmount } from '@/core/services/format';
+import { formatAmount, formatDateTime, roundMoney } from '@/core/services/format';
 import { Strings } from '@/core/strings';
 import {
   getPaymentDisplayLabel,
@@ -12,15 +12,32 @@ import {
   type OrderWithItems,
 } from '@/core/types/order';
 
+/** Cash/online split for order-level export columns (first line of each order only). */
+export function getOrderExportPaymentAmounts(order: OrderWithItems): {
+  cashAmount: number | null;
+  onlineAmount: number | null;
+} {
+  const total = roundMoney(order.total ?? 0);
+  if (order.payment_type === PaymentType.CASH) {
+    return { cashAmount: total, onlineAmount: null };
+  }
+  if (order.payment_type === PaymentType.ONLINE) {
+    return { cashAmount: null, onlineAmount: total };
+  }
+  if (order.payment_type === PaymentType.SPLIT) {
+    return {
+      cashAmount: roundMoney(order.cash_share ?? 0),
+      onlineAmount: roundMoney(order.online_share ?? 0),
+    };
+  }
+  return { cashAmount: null, onlineAmount: null };
+}
+
 function lineItemExportKindLabel(transactionType: string | undefined): string {
   const t = (transactionType ?? 'sale').toLowerCase();
   if (t === 'request') return Strings.company.itemLineRequested;
   if (t === 'refund') return Strings.company.refund;
   return Strings.company.ordersExportLineStatusSale;
-}
-
-function lineItemExportRequestedYesNo(transactionType: string | undefined): string {
-  return (transactionType ?? '').toLowerCase() === 'request' ? Strings.common.yes : Strings.common.no;
 }
 
 function csvEscapeCell(value: string): string {
@@ -121,17 +138,20 @@ export function buildOrdersCsv(orders: OrderWithItems[]): string {
   return lines.join('\r\n');
 }
 
-/** One CSV row per order line: id, article, size, qty, unit price, line total, requested yes/no, line kind. */
+/** One CSV row per order line; order total shown once per order group (first line only). */
 export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
   const header = [
     'Order ID',
     'Article code',
+    'Date & time',
+    'Payment',
     'Article name',
     'Size',
     'Quantity',
     'Unit price',
-    'Line total',
-    Strings.company.ordersExportLineItemRequestedColumn,
+    'Order Total',
+    'Cash Amount',
+    'Online Amount',
     Strings.company.ordersExportLineItemKindColumn,
   ];
   const lines = [header.map(csvEscapeCell).join(',')];
@@ -140,21 +160,29 @@ export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
   );
   for (const o of sorted) {
     const orderId = String(o.server_order_id ?? '');
+    const orderDateTime = o.created_at ? formatDateTime(o.created_at) : '';
+    const payment = getPaymentDisplayLabel(o);
+    const orderTotal = formatAmount(o.total ?? 0);
+    const paymentAmounts = getOrderExportPaymentAmounts(o);
     const itemRows: (OrderItem | undefined)[] =
       o.items && o.items.length > 0 ? o.items : [undefined];
-    for (const line of itemRows) {
+    for (let i = 0; i < itemRows.length; i++) {
+      const line = itemRows[i];
       const qty = line?.quantity ?? 0;
       const unit = line?.unit_price ?? 0;
-      const lineTotal = line?.total ?? 0;
+      const isFirstLine = i === 0;
       const row = [
         orderId,
         line ? String(line.article_code ?? '') : '',
+        orderDateTime,
+        payment,
         line ? String(line.product_name ?? '') : '',
         line ? String(line.size ?? '') : '',
         line ? String(qty) : '',
         line ? formatAmount(unit) : '',
-        line ? formatAmount(lineTotal) : '',
-        line ? lineItemExportRequestedYesNo(line.transaction_type) : '',
+        isFirstLine ? orderTotal : '',
+        isFirstLine && paymentAmounts.cashAmount != null ? formatAmount(paymentAmounts.cashAmount) : '',
+        isFirstLine && paymentAmounts.onlineAmount != null ? formatAmount(paymentAmounts.onlineAmount) : '',
         line ? lineItemExportKindLabel(line.transaction_type) : '',
       ];
       lines.push(row.map(csvEscapeCell).join(','));

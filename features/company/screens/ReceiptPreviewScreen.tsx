@@ -14,6 +14,7 @@ import { ThemedView } from '@/core/components/themed-view';
 import { IconSymbol } from '@/core/components/ui/icon-symbol';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { Colors } from '@/core/constants/theme';
+import { useCompany } from '@/core/context/company-context';
 import { useColorScheme } from '@/core/hooks/use-color-scheme';
 import { formatAmount, formatPrice } from '@/core/services/format';
 import {
@@ -30,10 +31,8 @@ import {
 } from '@/core/services/printing';
 import { toast } from '@/core/services/toast';
 import { Strings } from '@/core/strings';
-import { getPaymentDisplayLabel, PaymentProvider, PaymentType } from '@/core/types/order';
 import type { PaymentProviderEnum, PaymentTypeEnum } from '@/core/types/order';
-
-const SELLER_NAME = Strings.company.sellerName;
+import { getPaymentDisplayLabel, PaymentProvider, PaymentType } from '@/core/types/order';
 
 /** Matches checkout request badge color for consistency. */
 const RECEIPT_REQUEST_PURPLE = '#7B2FBE';
@@ -58,6 +57,9 @@ export default function ReceiptPreviewScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { selectedCompany } = useCompany();
+  const sellerDisplayName = selectedCompany?.registered_name?.trim() || Strings.company.sellerName;
+  const gstNumber = selectedCompany?.gstin_number?.trim() || null;
   const params = useLocalSearchParams<{
     id: string;
     orderId: string;
@@ -134,6 +136,8 @@ export default function ReceiptPreviewScreen() {
     total,
     paymentMethod,
     currency,
+    sellerName: sellerDisplayName,
+    gstNumber: gstNumber ?? undefined,
   };
 
   const receiptText = buildReceiptText(receiptData);
@@ -223,8 +227,13 @@ export default function ReceiptPreviewScreen() {
         ) : null}
         <View style={[styles.receiptCard, { backgroundColor: colors.background, borderColor: colors.icon + '25' }]}>
           <ThemedText type="subtitle" style={styles.sellerName}>
-            {SELLER_NAME}
+            {sellerDisplayName}
           </ThemedText>
+          {gstNumber ? (
+            <ThemedText style={[styles.gstNumber, { color: colors.icon }]}>
+              GST: {gstNumber}
+            </ThemedText>
+          ) : null}
           <ThemedText style={[styles.orderId, { color: colors.icon }]}>
             Order #{serverOrderId}
           </ThemedText>
@@ -386,6 +395,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   sellerName: {
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  gstNumber: {
+    fontSize: 12,
     textAlign: 'center',
     marginBottom: 4,
   },

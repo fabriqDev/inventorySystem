@@ -10,12 +10,12 @@ import { Platform } from 'react-native';
 import { BackendError, toBackendError, toUserMessage } from '@/core/backend/errors';
 import { CURRENCY_DEFAULT } from '@/core/constants/currency';
 import { toast } from '@/core/services/toast';
-import { OrderStatus, PaymentProvider, PaymentType, parseOrderStatus } from '@/core/types/order';
 import type { OrderWithItems } from '@/core/types/order';
+import { OrderStatus, PaymentProvider, PaymentType, parseOrderStatus } from '@/core/types/order';
 import { parseUniformGroup, type Product } from '@/core/types/product';
 import {
-  OrderItemRequestField,
   ORDER_ID_FULL_UUID_RE,
+  OrderItemRequestField,
   type RequestItemSearchPayload,
   type RequestedOrderLine,
   type RequestedOrderListRow,
@@ -325,6 +325,8 @@ const COMPANIES_QUERY = `
         name: company_name
         slug: company_code
         address
+        registered_name
+        gstin_number
         rz_pg
         config
         created_at
@@ -1008,6 +1010,7 @@ function mapProductInventoryRow(row: any): Product {
 function mapOrderHistoryRowWithItems(o: any, companyId: string): OrderWithItems {
   const items = (o.order_items ?? []).map((i: any) => ({
     article_code: i.article_code ?? '',
+    hsn_code: i.product?.hsn_code ?? undefined,
     product_name: i.product_name ?? '',
     size: i.product?.size ?? undefined,
     quantity: i.quantity ?? 0,
@@ -1073,6 +1076,8 @@ const data: DataProvider = {
         name: company.name,
         slug: company.slug ?? undefined,
         address: company.address ?? undefined,
+        registered_name: company.registered_name ?? null,
+        gstin_number: company.gstin_number ?? null,
         razorpay_id: company.razorpay_id ?? undefined,
         config: company.config ?? undefined,
         created_at: company.created_at,

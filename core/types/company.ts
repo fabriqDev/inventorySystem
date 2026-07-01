@@ -20,6 +20,10 @@ export interface Company {
   razorpay_id?: string | null;
   /** Top-level address from backend (company_name, company_code, address) */
   address?: string;
+  /** Legal / registered business name; shown on receipts instead of the app default when present. */
+  registered_name?: string | null;
+  /** GST registration number; printed on receipts below the seller name when present. */
+  gstin_number?: string | null;
   /** Feature flags / config from the backend config jsonb column. */
   config?: CompanyConfig;
   meta?: {

@@ -26,6 +26,18 @@ export function formatDate(isoString: string): string {
   });
 }
 
+/** Date and time for spreadsheet exports (e.g. order line items). */
+export function formatDateTime(isoString: string): string {
+  return new Date(isoString).toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 export function truncateId(id: string, len = 8): string {
   return id.length > len ? `${id.slice(0, len)}…` : id;
 }
