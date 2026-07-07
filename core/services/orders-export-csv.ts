@@ -152,7 +152,7 @@ export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
     'Size',
     'Qunatity',
     'Item Price',
-    'Line Item Price',
+    'Line total',
     'Payment type',
     'Order Total',
     'Cash Amount',
