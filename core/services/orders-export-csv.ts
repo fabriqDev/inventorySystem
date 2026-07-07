@@ -17,17 +17,20 @@ export function getOrderExportPaymentAmounts(order: OrderWithItems): {
   cashAmount: number | null;
   onlineAmount: number | null;
 } {
-  const total = roundMoney(order.total ?? 0);
+  const rawTotal = roundMoney(order.total ?? 0);
+  const total = rawTotal < 0 ? rawTotal : rawTotal;
+  const isRefundOrder = rawTotal < 0;
+  const signed = (v: number) => (isRefundOrder ? -Math.abs(v) : Math.abs(v));
   if (order.payment_type === PaymentType.CASH) {
-    return { cashAmount: total, onlineAmount: null };
+    return { cashAmount: signed(rawTotal), onlineAmount: null };
   }
   if (order.payment_type === PaymentType.ONLINE) {
-    return { cashAmount: null, onlineAmount: total };
+    return { cashAmount: null, onlineAmount: signed(rawTotal) };
   }
   if (order.payment_type === PaymentType.SPLIT) {
     return {
-      cashAmount: roundMoney(order.cash_share ?? 0),
-      onlineAmount: roundMoney(order.online_share ?? 0),
+      cashAmount: signed(roundMoney(order.cash_share ?? 0)),
+      onlineAmount: signed(roundMoney(order.online_share ?? 0)),
     };
   }
   return { cashAmount: null, onlineAmount: null };
@@ -104,7 +107,7 @@ export function buildOrdersCsv(orders: OrderWithItems[]): string {
     'Order ID',
     'Created at',
     'Status',
-    'Payment',
+    'Payment type',
     'Subtotal',
     'Total',
     'Refund amount',
@@ -141,14 +144,16 @@ export function buildOrdersCsv(orders: OrderWithItems[]): string {
 /** One CSV row per order line; order total shown once per order group (first line only). */
 export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
   const header = [
-    'Order ID',
-    'Article code',
-    'Date & time',
-    'Payment',
-    'Article name',
+    'OrderID',
+    'Date&Time',
+    'ArticelCode',
+    'Article Name',
+    'HSN Code',
     'Size',
-    'Quantity',
-    'Unit price',
+    'Qunatity',
+    'Item Price',
+    'Line Item Price',
+    'Payment type',
     'Order Total',
     'Cash Amount',
     'Online Amount',
@@ -162,7 +167,9 @@ export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
     const orderId = String(o.server_order_id ?? '');
     const orderDateTime = o.created_at ? formatDateTime(o.created_at) : '';
     const payment = getPaymentDisplayLabel(o);
-    const orderTotal = formatAmount(o.total ?? 0);
+    const rawOrderTotal = roundMoney(o.total ?? 0);
+    const isRefundOrder = rawOrderTotal < 0;
+    const orderTotal = formatAmount(isRefundOrder ? -Math.abs(rawOrderTotal) : Math.abs(rawOrderTotal));
     const paymentAmounts = getOrderExportPaymentAmounts(o);
     const itemRows: (OrderItem | undefined)[] =
       o.items && o.items.length > 0 ? o.items : [undefined];
@@ -170,16 +177,21 @@ export function buildOrdersWithLineItemsCsv(orders: OrderWithItems[]): string {
       const line = itemRows[i];
       const qty = line?.quantity ?? 0;
       const unit = line?.unit_price ?? 0;
+      const isRefundLine = (line?.transaction_type ?? '').toLowerCase() === 'refund';
+      const exportQty = isRefundLine ? -Math.abs(qty) : qty;
+      const lineItemTotal = roundMoney(exportQty * unit);
       const isFirstLine = i === 0;
       const row = [
         orderId,
-        line ? String(line.article_code ?? '') : '',
         orderDateTime,
-        payment,
+        line ? String(line.article_code ?? '') : '',
         line ? String(line.product_name ?? '') : '',
+        line ? String((line as any).hsn_code ?? '') : '',
         line ? String(line.size ?? '') : '',
-        line ? String(qty) : '',
+        line ? String(exportQty) : '',
         line ? formatAmount(unit) : '',
+        line ? formatAmount(lineItemTotal) : '',
+        payment,
         isFirstLine ? orderTotal : '',
         isFirstLine && paymentAmounts.cashAmount != null ? formatAmount(paymentAmounts.cashAmount) : '',
         isFirstLine && paymentAmounts.onlineAmount != null ? formatAmount(paymentAmounts.onlineAmount) : '',
