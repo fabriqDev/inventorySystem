@@ -3,7 +3,7 @@ import type { Product } from '@/core/types/product';
 import { useDataSource } from '@/core/context/data-source-context';
 import { fetchProducts } from '@/core/api/products';
 
-const MAX_PRODUCTS_PER_COMPANY = 300;
+const MAX_PRODUCTS_PER_COMPANY = 1000;
 
 interface StockAdjustment {
   article_code: string;
